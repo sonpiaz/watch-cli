@@ -38,7 +38,7 @@ fi
 BASE="${WATCH_KYMA_BASE:-https://api.kymaapi.com}"
 URL="$BASE/v1/models"
 
-RAW="$(curl -fsS "$URL" 2>&1)" || {
+RAW="$(curl -fsS -H "User-Agent: $WATCH_CLI_USER_AGENT" "$URL" 2>&1)" || {
   echo "[models] could not reach Kyma at $BASE" >&2
   echo "[models] check your internet, or set WATCH_KYMA_BASE if self-hosting" >&2
   exit 1

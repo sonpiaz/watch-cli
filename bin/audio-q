@@ -76,6 +76,7 @@ case "$WATCH_AUDIO_MODE" in
     # Kyma can swap the underlying model without breaking watch-cli.
     RESP="$(curl -sS -X POST \
       -H "Authorization: Bearer $KYMA_API_KEY" \
+      -H "User-Agent: $WATCH_CLI_USER_AGENT" \
       -F "file=@$AUDIO;type=audio/mpeg" \
       -F "model=audio-understand" \
       -F "question=$QUESTION" \
@@ -109,6 +110,7 @@ case "$WATCH_AUDIO_MODE" in
     RESP="$(curl -sS -X POST \
       -H "Content-Type: application/json" \
       -H "x-goog-api-key: $GOOGLE_AI_KEY" \
+      -H "User-Agent: $WATCH_CLI_USER_AGENT" \
       -d "$BODY" \
       "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent")"
 

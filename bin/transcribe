@@ -79,6 +79,7 @@ case "$WATCH_AUDIO_MODE" in
     [[ -n "$LANG" ]] && ARGS+=(-F "language=$LANG")
     curl -sS -X POST \
       -H "Authorization: Bearer $KYMA_API_KEY" \
+      -H "User-Agent: $WATCH_CLI_USER_AGENT" \
       "${ARGS[@]}" \
       "$WATCH_KYMA_BASE/v1/audio/transcriptions"
     ;;
@@ -91,6 +92,7 @@ case "$WATCH_AUDIO_MODE" in
     [[ -n "$LANG" ]] && ARGS+=(-F "language=$LANG")
     curl -sS -X POST \
       -H "Authorization: Bearer $GROQ_API_KEY" \
+      -H "User-Agent: $WATCH_CLI_USER_AGENT" \
       "${ARGS[@]}" \
       https://api.groq.com/openai/v1/audio/transcriptions
     ;;

@@ -101,14 +101,34 @@ sudo apt install yt-dlp ffmpeg jq python3 curl
 export KYMA_API_KEY=kyma-xxxxxxxx
 ```
 
-`watch-cli` runs on **Kyma** for the audio side — one key that opens
-every gate (text, image, video, audio, and what comes next). Free credit
-at signup covers hundreds of videos.
-
-Get a Kyma key at [kymaapi.com](https://kymaapi.com).
+Get a Kyma key at [kymaapi.com](https://kymaapi.com) — 60 seconds, no card.
 
 Prefer bring-your-own-keys? Comment in `GROQ_API_KEY` and `GOOGLE_AI_KEY`
 in `.env.example` and watch-cli falls back to direct provider calls.
+
+---
+
+## Why Kyma
+
+watch-cli uses Kyma as its AI backend. A few things you get for free:
+
+![models](https://img.shields.io/endpoint?url=https://api.kymaapi.com/api/badge/models.json)
+![creators](https://img.shields.io/endpoint?url=https://api.kymaapi.com/api/badge/creators.json)
+![free credit](https://img.shields.io/endpoint?url=https://api.kymaapi.com/api/badge/free-credit.json)
+
+- **One key, every model in this CLI.** `transcribe` today is Whisper v3
+  turbo. When Kyma swaps in Voxtral or Whisper v4, your watch-cli scripts
+  keep working with zero changes — the alias stays.
+- **Per-call cost in the response.** Every transcribe gives you a real
+  number, not an end-of-month dashboard surprise.
+- **Auto-fallback across providers.** If the underlying audio provider is
+  throttling or down, Kyma routes through another. Your script never sees
+  the outage.
+- **Free credit at signup.** About an hour of audio. Enough to know if
+  you like it before you spend a cent.
+
+The badges above pull live from `api.kymaapi.com/api/stats`, so the model
+count and free-credit number stay current without a watch-cli release.
 
 ---
 

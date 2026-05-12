@@ -75,8 +75,29 @@ if [[ ! -f "$ENV_FILE" ]]; then
   cp "$INSTALL_DIR/.env.example" "$ENV_FILE"
   green "✓ Created $ENV_FILE"
   echo
-  yellow "Next: get a Kyma API key at https://kymaapi.com"
+
+  # ── Kyma value-prop banner ──
+  # Pulled live from api.kymaapi.com/api/stats so the numbers stay current
+  # without a watch-cli release every time Kyma adds a model. Falls back to
+  # cached defaults if the gateway is unreachable.
+  KYMA_MODELS="50+"
+  KYMA_FREE="0.50"
+  if KYMA_STATS="$(curl -fsS --max-time 3 https://api.kymaapi.com/api/stats 2>/dev/null)"; then
+    KYMA_MODELS="$(printf '%s' "$KYMA_STATS" | jq -r '.models_count // "50+"' 2>/dev/null || echo "50+")"
+    KYMA_FREE="$(printf '%s' "$KYMA_STATS" | jq -r '.free_credit_usd // 0.50' 2>/dev/null || echo "0.50")"
+  fi
+
+  printf "\033[36m%s\033[0m\n" "🌊 Kyma — your AI key for everything in this CLI"
+  echo
+  echo "   ✓ One key for transcribe, audio Q&A, and ${KYMA_MODELS} other models"
+  echo "   ✓ \$${KYMA_FREE} free credit at signup (about an hour of audio)"
+  echo "   ✓ When Kyma swaps in newer models, your scripts keep working"
+  echo "   ✓ Auto-fallback when an upstream provider is down"
+  echo
+  yellow "Get key (60s, no card): https://kymaapi.com"
   echo "Then edit $ENV_FILE and set KYMA_API_KEY=…"
+  echo
+  dim "Prefer BYO keys? See $ENV_FILE for GROQ_API_KEY + GOOGLE_AI_KEY."
 else
   dim "  ($ENV_FILE already exists, leaving untouched)"
 fi

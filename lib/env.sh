@@ -18,6 +18,11 @@
 [[ -n "${WATCH_CLI_ENV_LOADED:-}" ]] && return 0
 export WATCH_CLI_ENV_LOADED=1
 
+# Version is sent in the User-Agent header so Kyma can attribute usage and
+# detect which install needs an upgrade. Bump on every release.
+export WATCH_CLI_VERSION="0.2.0"
+export WATCH_CLI_USER_AGENT="watch-cli/${WATCH_CLI_VERSION}"
+
 _load_dotenv() {
   local file="$1"
   [[ -f "$file" ]] || return 0
