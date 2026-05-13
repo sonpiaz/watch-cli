@@ -198,6 +198,35 @@ The output block is structured so an agent can parse it without help:
 
 ---
 
+## Prompt library
+
+Beyond the generic prompt above, five copy-paste prompts in
+[`prompts/`](prompts/) turn `watch` output into a specific artifact:
+
+| Goal | File |
+|---|---|
+| Coding walkthrough → working project | [`implement-from-video.md`](prompts/implement-from-video.md) |
+| System talk → interactive architecture diagram | [`extract-architecture.md`](prompts/extract-architecture.md) |
+| UI / motion demo → working React component | [`clone-ux.md`](prompts/clone-ux.md) |
+| Paper / research talk → runnable notebook | [`paper-to-code.md`](prompts/paper-to-code.md) |
+| Long tutorial → step-by-step cheat sheet | [`tutorial-walkthrough.md`](prompts/tutorial-walkthrough.md) |
+
+Paste the chosen prompt above the `watch` output, hand the whole thing
+to your agent.
+
+### Use as a Claude Code skill
+
+Drop [`skills/watch-cli/`](skills/watch-cli/) into your
+`~/.claude/skills/` folder and the agent will pick up `/watch <url>`
+as a first-class command, including the prompt library above.
+
+```bash
+mkdir -p ~/.claude/skills
+cp -r skills/watch-cli ~/.claude/skills/
+```
+
+---
+
 ## How it works
 
 ```text
@@ -211,6 +240,64 @@ URL ──▶ yt-dlp ──▶ video.mp4 ──┬──▶ ffmpeg ──▶ fra
 ```
 
 Each step is a primitive. None of them needs a vision LLM.
+
+---
+
+## Limitations and cost
+
+Watch-cli is fast and cheap because it composes primitives instead of
+calling a video LLM. The tradeoffs are honest.
+
+### Cost per video
+
+Transcription is the only paid step. Frame extraction is local ffmpeg,
+free.
+
+| Video length | Transcribe cost |
+|---|---|
+| 5 minutes (tweet, short demo) | ~$0.003 |
+| 1 hour (LinkedIn talk, podcast) | ~$0.04 |
+| 2 hours (conference talk) | ~$0.08 |
+
+Free credit at Kyma signup covers roughly 25 hours of audio. Bring your
+own Groq key and the price stays the same (Whisper v3 turbo, $0.04/hour
+both ways).
+
+### What works well
+
+- Talking-head content: tutorials, conference talks, lectures, walkthroughs
+- Architecture and system diagrams shown for at least 3 seconds
+- Code that stays on screen long enough to read
+- ~95 languages (anything Whisper v3 turbo supports)
+
+### What works poorly
+
+- Music videos, action movies, fast-cut content. Eight evenly-spaced
+  frames miss key moments. Bump count: `watch <url> 24`.
+- Editor sessions that scroll fast through code. Same fix.
+- Audio with heavy background music and overlapping speakers. Transcript
+  quality drops. Use `audio-q` for a scene description instead.
+- Videos longer than ~2 hours. The transcribe provider has a 25MB audio
+  cap. Watch-cli auto-downsamples but a 3-hour talk may still exceed.
+  Workaround: split via `ffmpeg -ss` before piping.
+
+### What does not work yet
+
+- Region-locked videos (some YouTube, TikTok). yt-dlp returns an error;
+  watch-cli surfaces it.
+- Live streams. Download finishes only after the stream ends.
+- Silent screencasts. Transcribe returns empty. Increase frame count and
+  use `audio-q` for any sound design instead.
+
+### Frame count guidance
+
+| Video type | Recommended `frame-count` |
+|---|---|
+| Short tweet / clip (<2 min) | 4 to 8 (default) |
+| Standard tutorial / talk (5–20 min) | 8 to 16 |
+| Long talk / lecture (20–60 min) | 16 to 24 |
+| Conference talk / multi-hour (>1 hr) | 24 to 32 |
+| Fast-cut or dense UI demo | Double the recommendation for that length |
 
 ---
 
