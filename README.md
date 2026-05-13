@@ -243,6 +243,15 @@ Each step is a primitive. None of them needs a vision LLM.
 
 ---
 
+## Show what you build
+
+Built something cool from a video? Drop it in
+[Discussions](https://github.com/sonpiaz/watch-cli/discussions) under
+**Show and tell**. Post the source URL, the prompt you used, and your
+artifact. Curated highlights make it back into the README.
+
+---
+
 ## Limitations and cost
 
 Watch-cli is fast and cheap because it composes primitives instead of
