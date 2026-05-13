@@ -15,8 +15,9 @@ For these, watch-cli needs to act as a signed-in user.
 
 ## Option 1 — sign in to a browser (easiest)
 
-If you're already signed in to the platform in **any** of these browsers,
-watch-cli auto-detects and uses the session:
+**You don't need to copy cookies by hand.** If you're already signed in
+to the platform in **any** of these browsers, watch-cli reads the live
+session directly. No F12, no DevTools, no extensions:
 
 - Chrome (default first try)
 - Firefox
@@ -56,7 +57,21 @@ browser, then pass it explicitly:
 watch <url> --cookies ~/path/to/cookies.txt
 ```
 
-### Recommended exporters
+### Fastest path: one yt-dlp command, no extension
+
+If the source machine has Chrome installed and signed in, export with
+one command:
+
+```bash
+yt-dlp --cookies-from-browser chrome --cookies ~/yt-cookies.txt \
+       --skip-download "https://www.linkedin.com"
+```
+
+Then `watch <url> --cookies ~/yt-cookies.txt`. Swap `chrome` for
+`firefox`, `safari`, `edge`, `brave`, `chromium`, or `vivaldi` as
+needed. Works for any platform yt-dlp supports.
+
+### Recommended exporters (browser extensions)
 
 - **Chrome / Edge / Brave**: [Get cookies.txt LOCALLY](https://chromewebstore.google.com/detail/get-cookiestxt-locally) extension
 - **Firefox**: [cookies.txt extension](https://addons.mozilla.org/en-US/firefox/addon/cookies-txt/)
@@ -88,6 +103,13 @@ watch-cli never copies, uploads, or persists your cookies. The cookie
 data flows: browser profile → `yt-dlp` (local process) → platform CDN.
 Nothing else sees it.
 
+That said: any local process running as your user can also read these
+cookies. Homebrew install scripts, npm `postinstall` hooks, AI agents
+with shell access, anything you `curl | bash`. This is a property of
+how macOS and Linux user accounts work, not specific to watch-cli. For
+sensitive accounts, use a dedicated browser profile or a separate
+browser entirely.
+
 ---
 
 ## Still failing?
@@ -104,3 +126,17 @@ Common causes when both options fail:
 
 If none apply, file an issue with the URL pattern (no cookies pasted!)
 and the platform name at the repo issues page.
+
+---
+
+## Under the hood
+
+Browser auto-detect uses
+[`yt-dlp --cookies-from-browser`](https://github.com/yt-dlp/yt-dlp),
+which reads the browser's encrypted SQLite cookie store and decrypts
+via the OS keychain. Same primitive that any "give your CLI a session"
+tool uses: Python's `browser_cookie3`, Node's `chrome-cookies-secure`,
+Go's `kooky`.
+
+No magic. The decomposition story from the README applies here too: a
+tool already exists for this primitive; watch-cli just composes it.
