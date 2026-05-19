@@ -13,7 +13,13 @@
 
 set -uo pipefail
 
+# Resolve symlinks so ROOT_DIR points at the real install dir, not ~/.local.
 SELF="${BASH_SOURCE[0]}"
+while [ -L "$SELF" ]; do
+  SELF_DIR="$(cd "$(dirname "$SELF")" && pwd)"
+  SELF="$(readlink "$SELF")"
+  [[ $SELF != /* ]] && SELF="$SELF_DIR/$SELF"
+done
 SELF_DIR="$(cd "$(dirname "$SELF")" && pwd)"
 ROOT_DIR="$(cd "$SELF_DIR/.." && pwd)"
 # shellcheck source=../lib/env.sh

@@ -286,10 +286,10 @@ parsing fragile details guarantees breakage on the next release.
 ## Pipe mode (JSONL)
 
 `watch --pipe` accepts one URL per line on stdin and emits one
-compact JSON object per URL on stdout — a JSONL stream. The mode is
-auto-enabled when stdin is not a TTY *and* no URL argument was
-passed, so `cat urls.txt | watch` Just Works without the explicit
-flag.
+compact JSON object per URL on stdout — a JSONL stream. Pipe mode is
+opt-in via the `--pipe` flag — running `watch` with no args (even
+with piped stdin) still exits with code 64 (usage error). Use
+`cat urls.txt | watch --pipe` to drive a batch.
 
 The pipe-mode emission rules:
 

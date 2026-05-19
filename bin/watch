@@ -24,8 +24,8 @@
 # compact JSON object per URL to stdout (JSONL). Implies --format json
 # and suppresses text-format block markers. Errors per line keep
 # version:1 so consumers can detect the schema, and processing
-# continues to the next URL. Auto-enabled when stdin is not a TTY and
-# no URL argument is passed.
+# continues to the next URL. Pipe mode is opt-in via --pipe; running
+# `watch` with no args from a script context still exits 64 (usage).
 #
 # Exit codes: see docs/exit-codes.md.
 #   0 success · 1 general · 2 missing-dep · 3 download fail
@@ -88,16 +88,16 @@ while [[ $# -gt 0 ]]; do
 done
 
 SELF="${BASH_SOURCE[0]}"
+# Resolve symlinks so $ROOT_DIR points at the real install dir, not ~/.local.
+while [ -L "$SELF" ]; do
+  SELF_DIR="$(cd "$(dirname "$SELF")" && pwd)"
+  SELF="$(readlink "$SELF")"
+  [[ $SELF != /* ]] && SELF="$SELF_DIR/$SELF"
+done
 SELF_DIR="$(cd "$(dirname "$SELF")" && pwd)"
 ROOT_DIR="$(cd "$SELF_DIR/.." && pwd)"
 # shellcheck source=../lib/health.sh
 source "$ROOT_DIR/lib/health.sh"
-
-# Auto-enable pipe mode when stdin is not a TTY and no URL was passed.
-# This lets `cat urls.txt | watch` Just Work without an explicit flag.
-if [[ $PIPE -eq 0 && -z "$URL" ]] && [[ ! -t 0 ]]; then
-  PIPE=1
-fi
 
 # Pipe mode implies JSON output. A consumer reading JSONL doesn't want
 # text-block markers interleaved between objects.
