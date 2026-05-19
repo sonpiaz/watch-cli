@@ -4,17 +4,55 @@
 #   curl -fsSL https://raw.githubusercontent.com/sonpiaz/watch-cli/main/install.sh | bash
 # or, from a clone:
 #   ./install.sh
+#
+# Flags:
+#   --with-skill   After install, drop SKILL.md into ~/.claude/skills/watch-cli/
+#                  so Claude Code picks up the watch-cli skill on next start.
+#   --with-mcp     Print the manual install hint for the MCP stdio server
+#                  (@sonpiaz/watch-cli-mcp on npm — not auto-installed yet).
+#   --help, -h     Show this help and exit.
 
 set -euo pipefail
 
 REPO_URL="https://github.com/sonpiaz/watch-cli"
 INSTALL_DIR="${WATCH_CLI_HOME:-$HOME/.watch-cli}"
 BIN_LINK_DIR="${WATCH_CLI_BIN:-$HOME/.local/bin}"
+CLAUDE_SKILLS_DIR="${HOME}/.claude/skills"
+
+WITH_SKILL=0
+WITH_MCP=0
 
 red() { printf "\033[31m%s\033[0m\n" "$*"; }
 green() { printf "\033[32m%s\033[0m\n" "$*"; }
 yellow() { printf "\033[33m%s\033[0m\n" "$*"; }
 dim() { printf "\033[2m%s\033[0m\n" "$*"; }
+
+usage() {
+  cat <<'EOF'
+watch-cli installer
+
+Usage:
+  curl -fsSL https://raw.githubusercontent.com/sonpiaz/watch-cli/main/install.sh | bash
+  ./install.sh [--with-skill] [--with-mcp]
+
+Flags:
+  --with-skill   After install, copy SKILL.md into ~/.claude/skills/watch-cli/
+                 so Claude Code picks up the watch-cli skill on next start.
+  --with-mcp     Print the manual install hint for the MCP stdio server
+                 (@sonpiaz/watch-cli-mcp on npm — not auto-installed yet).
+  -h, --help     Show this help and exit.
+EOF
+}
+
+# ── Parse args ──
+while (($# > 0)); do
+  case "$1" in
+    --with-skill) WITH_SKILL=1; shift ;;
+    --with-mcp) WITH_MCP=1; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) red "Unknown flag: $1"; echo; usage; exit 64 ;;
+  esac
+done
 
 echo "watch-cli installer"
 echo "==================="
@@ -64,6 +102,25 @@ if [[ ":$PATH:" != *":$BIN_LINK_DIR:"* ]]; then
   echo "Add this line to your shell profile (~/.zshrc or ~/.bashrc):"
   echo
   echo "    export PATH=\"$BIN_LINK_DIR:\$PATH\""
+  echo
+fi
+
+# ── Optional: drop portable SKILL.md into ~/.claude/skills/watch-cli/ ──
+if (( WITH_SKILL )); then
+  if [[ -f "$INSTALL_DIR/SKILL.md" ]]; then
+    mkdir -p "$CLAUDE_SKILLS_DIR/watch-cli"
+    cp "$INSTALL_DIR/SKILL.md" "$CLAUDE_SKILLS_DIR/watch-cli/SKILL.md"
+    green "✓ Installed SKILL.md → $CLAUDE_SKILLS_DIR/watch-cli/SKILL.md"
+  else
+    yellow "⚠ --with-skill: $INSTALL_DIR/SKILL.md not found; skipped."
+  fi
+fi
+
+# ── Optional: MCP stdio server hint ──
+if (( WITH_MCP )); then
+  echo
+  yellow "MCP server install will be available once @sonpiaz/watch-cli-mcp is published to npm — install manually for now:"
+  echo "    npm install -g @sonpiaz/watch-cli-mcp"
   echo
 fi
 

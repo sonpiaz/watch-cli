@@ -116,6 +116,21 @@ On Debian/Ubuntu:
 sudo apt install yt-dlp ffmpeg jq python3 curl
 ```
 
+### Optional install flags
+
+```bash
+./install.sh --with-skill   # also drop SKILL.md into ~/.claude/skills/watch-cli/
+./install.sh --with-mcp     # print the npm install hint for the MCP stdio server
+```
+
+- `--with-skill` copies the portable `SKILL.md` into `~/.claude/skills/watch-cli/`
+  so Claude Code picks up watch-cli as a skill on next start. The same file
+  works in OpenClaw and hermes-agent — see [`SKILL.md`](SKILL.md).
+- `--with-mcp` prints the manual install line for [`@sonpiaz/watch-cli-mcp`](mcp-server/),
+  the MCP stdio server that exposes watch-cli to Claude Desktop, Cursor, Cline,
+  Continue.dev, Windsurf, Zed, and any other MCP-capable client. The flag will
+  auto-install once the package is published to npm.
+
 ---
 
 ## Setup

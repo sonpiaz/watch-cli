@@ -1,0 +1,44 @@
+{
+  "name": "@sonpiaz/watch-cli-mcp",
+  "version": "0.1.0",
+  "description": "Watch any social video → get an architecture diagram, working component, runnable notebook, or step-by-step cheat sheet — automatically. MCP stdio server for watch-cli.",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "watch-cli-mcp": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p .",
+    "start": "node dist/index.js",
+    "prepublishOnly": "npm run build"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.5.0"
+  },
+  "homepage": "https://github.com/sonpiaz/watch-cli",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sonpiaz/watch-cli.git",
+    "directory": "mcp-server"
+  },
+  "license": "MIT",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "watch-cli",
+    "video",
+    "agent",
+    "transcribe"
+  ]
+}
