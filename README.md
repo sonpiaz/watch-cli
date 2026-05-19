@@ -61,14 +61,14 @@ wrong artifact — agents need raw frames and the full transcript to reason
 for themselves, not someone else's pre-digested recap.
 
 A typical research session is 1–3 videos, not 100. Through Kyma — the default
-backend — a 1-hour video costs **~$0.04** (transcribe is the only paid step;
+backend — a 1-hour video costs **~$0.05** (transcribe is the only paid step;
 frame extraction is local ffmpeg).
 
 | This month you watch | You pay |
 |---|---|
 | 0 videos | $0 |
-| 1 one-hour video | ~$0.04 |
-| 100 one-hour videos | ~$4 |
+| 1 one-hour video | ~$0.05 |
+| 100 one-hour videos | ~$5 |
 
 No monthly minimum, no seat license, no lock-in. The free credit at Kyma
 signup is enough to run the full pipeline end-to-end before you spend a cent.
@@ -124,16 +124,16 @@ watch-cli uses Kyma as its AI backend. A few things you get for free:
 ![creators](https://img.shields.io/endpoint?url=https://api.kymaapi.com/api/badge/creators.json)
 ![free credit](https://img.shields.io/endpoint?url=https://api.kymaapi.com/api/badge/free-credit.json)
 
-- **One key, every model in this CLI.** `transcribe` today is Whisper v3
-  turbo. When Kyma swaps in Voxtral or Whisper v4, your watch-cli scripts
-  keep working with zero changes — the alias stays.
+- **One key, every model in this CLI.** watch-cli calls Kyma using
+  capability aliases (`transcribe`, `audio-understand`). When Kyma swaps
+  in a better model behind the alias, your scripts keep working unchanged.
 - **Per-call cost in the response.** Every transcribe gives you a real
   number, not an end-of-month dashboard surprise.
 - **Auto-fallback across providers.** If the underlying audio provider is
   throttling or down, Kyma routes through another. Your script never sees
   the outage.
-- **Free credit at signup.** About an hour of audio. Enough to know if
-  you like it before you spend a cent.
+- **Free credit at signup.** About 9 hours of audio at the default rate.
+  Enough to know if you like it before you spend a cent.
 
 The badges above pull live from `api.kymaapi.com/api/stats`, so the model
 count and free-credit number stay current without a watch-cli release.
@@ -272,13 +272,12 @@ free.
 
 | Video length | Transcribe cost |
 |---|---|
-| 5 minutes (tweet, short demo) | ~$0.003 |
-| 1 hour (LinkedIn talk, podcast) | ~$0.04 |
-| 2 hours (conference talk) | ~$0.08 |
+| 5 minutes (tweet, short demo) | ~$0.005 |
+| 1 hour (LinkedIn talk, podcast) | ~$0.05 |
+| 2 hours (conference talk) | ~$0.11 |
 
-Free credit at Kyma signup covers roughly 25 hours of audio. Bring your
-own Groq key and the price stays the same (Whisper v3 turbo, $0.04/hour
-both ways).
+Free credit at Kyma signup covers about 9 hours of transcribe. A BYOK
+path is available — see `.env.example`.
 
 ### What works well
 
