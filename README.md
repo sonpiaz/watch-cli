@@ -16,20 +16,20 @@ posts (LinkedIn, X, FB) fall back to your browser cookies automatically.
 ## Why this exists
 
 Large language models can't watch video natively — they read text and
-look at still images. Modern multimodal APIs *will* analyze a full video
-for you, but they're slow and expensive. The trick: **you almost never
-need them**.
+look at still images. You can hand a video to a multimodal API and get
+back a chat-style summary, but for an agent workflow that's the wrong
+artifact: the agent wants the raw frames and the full transcript so it
+can reason for itself, not someone else's pre-digested recap.
 
-A video is just frames + audio. Each piece has a fast, near-free tool
-already:
+A video is just frames + audio, and each piece already has a fast,
+near-free primitive:
 
 - `yt-dlp` downloads from any social platform
 - `ffmpeg` extracts evenly-spaced frames
 - An ASR model transcribes the audio
 - A multimodal LLM hears tone, music, SFX, language, mood
 
-Compose them and your agent has video understanding — without burning a
-multimodal LLM on every frame.
+Compose them and your agent has the materials to watch any social video.
 
 ---
 
@@ -53,17 +53,25 @@ Your agent reads the JPGs and the transcript. That's the whole watch.
 
 ---
 
-## Benchmark
+## Why pay-per-use, not subscription
 
-After noticing how much we burned on multimodal calls, we measured:
+Most subscription summary tools start around **$15/month** and deliver a
+polished, human-readable summary. If you're feeding an AI agent, that's the
+wrong artifact — agents need raw frames and the full transcript to reason
+for themselves, not someone else's pre-digested recap.
 
-| Approach | Cost / 1-hour video | Time |
-|---|---|---|
-| Multimodal LLM on full video | ~$5 | 30–60s |
-| watch-cli (Kyma audio) | < $0.10 | ~10–15s |
-| **Ratio** | **~50× cheaper** | **~5× faster** |
+A typical research session is 1–3 videos, not 100. Through Kyma — the default
+backend — a 1-hour video costs **~$0.04** (transcribe is the only paid step;
+frame extraction is local ffmpeg).
 
-The savings compound when an agent watches dozens of videos in a session.
+| This month you watch | You pay |
+|---|---|
+| 0 videos | $0 |
+| 1 one-hour video | ~$0.04 |
+| 100 one-hour videos | ~$4 |
+
+No monthly minimum, no seat license, no lock-in. The free credit at Kyma
+signup is enough to run the full pipeline end-to-end before you spend a cent.
 
 ---
 
