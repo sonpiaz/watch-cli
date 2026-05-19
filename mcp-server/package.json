@@ -1,6 +1,6 @@
 {
   "name": "@sonpiaz/watch-cli-mcp",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "description": "Watch any social video → get an architecture diagram, working component, runnable notebook, or step-by-step cheat sheet — automatically. MCP stdio server for watch-cli.",
   "type": "module",
   "main": "dist/index.js",

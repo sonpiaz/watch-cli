@@ -248,8 +248,22 @@ contents:write + pull-requests:write).
 ### Required repo secrets
 
 - `NPM_TOKEN` — step 5; publish under `@sonpiaz/` on npm.
+  **Setup (one-time, manual):** generate an Automation token at
+  https://www.npmjs.com/settings/sonpiaz/tokens, then paste into the
+  watch-cli repo at Settings → Secrets and variables → Actions →
+  New repository secret. Without this, the `publish-mcp` job fails
+  and no MCP server is published — the GH Release and tarball are
+  unaffected.
 - `HOMEBREW_TAP_PAT` — step 6; push branches + open PRs in
   `sonpiaz/homebrew-tap`.
+  **Setup (one-time, manual):** generate a fine-grained PAT at
+  https://github.com/settings/personal-access-tokens, scope:
+  resource owner `sonpiaz`, repo access only `sonpiaz/homebrew-tap`,
+  permissions `contents:write` + `pull-requests:write` +
+  `metadata:read`, 1-year expiry. Paste into the watch-cli repo at
+  Settings → Secrets and variables → Actions. Without this, the
+  `bump-tap` job fails and Homebrew users do not get an auto-bump
+  PR — the GH Release and npm publish are unaffected.
 - `GITHUB_TOKEN` (built-in) is sufficient for steps 1–4.
 
 ---

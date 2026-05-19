@@ -1,0 +1,235 @@
+name: release
+
+# Fires on every annotated tag matching v* (e.g. v0.3.0, v1.0.0).
+# Builds a source tarball, attaches it + install.sh to a GH Release,
+# publishes the MCP stdio server to npm, and opens an auto-bump PR
+# against the Homebrew tap. See docs/releases.md for the contract.
+#
+# Required repo secrets (Settings → Secrets and variables → Actions):
+#   NPM_TOKEN          — automation token scoped to publish under
+#                        @sonpiaz/ on npm. Used by publish-mcp job.
+#                        TODO(user): generate at npmjs.com/settings/
+#                        sonpiaz/tokens (type: Automation) and paste.
+#   HOMEBREW_TAP_PAT   — fine-grained PAT scoped to
+#                        sonpiaz/homebrew-tap only. Permissions:
+#                        contents:write + pull-requests:write +
+#                        metadata:read. 1-year expiry recommended.
+#                        TODO(user): generate at
+#                        github.com/settings/personal-access-tokens
+#                        and paste here.
+#   GITHUB_TOKEN       — built-in, sufficient for steps 1–4.
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write   # gh release create
+  id-token: write   # npm provenance (future)
+
+jobs:
+  release:
+    name: Build tarball + create GH Release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      sha256: ${{ steps.tarball.outputs.sha256 }}
+    steps:
+      - name: Checkout (full history for ancestor check)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify tag is on main
+        # Refuse to release a tag cut from a feature branch. The
+        # workflow only ships from main. See docs/releases.md
+        # "Tag policy".
+        run: |
+          git fetch origin main --quiet
+          if ! git merge-base --is-ancestor "${GITHUB_SHA}" origin/main; then
+            echo "error: tag ${GITHUB_REF_NAME} is not on main (got ${GITHUB_SHA}); refusing to release" >&2
+            exit 1
+          fi
+          echo "OK: tag ${GITHUB_REF_NAME} is an ancestor of origin/main"
+
+      - name: Resolve version from tag
+        id: version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+          echo "Releasing v${VERSION}"
+
+      - name: Verify lib/version.sh matches tag
+        # Single source of truth check. If the bump-version PR was
+        # merged but lib/version.sh did not change, abort here so a
+        # mismatched tag never produces a release.
+        run: |
+          # shellcheck source=/dev/null
+          source lib/version.sh
+          if [[ "${WATCH_CLI_VERSION}" != "${VERSION}" ]]; then
+            echo "error: lib/version.sh says ${WATCH_CLI_VERSION} but tag is v${VERSION}" >&2
+            echo "fix: bump WATCH_CLI_VERSION in lib/version.sh to ${VERSION}, or cut a new tag" >&2
+            exit 1
+          fi
+          echo "OK: lib/version.sh and tag both say ${VERSION}"
+
+      - name: Build source tarball
+        id: tarball
+        run: |
+          git archive --format=tar.gz \
+            --prefix="watch-cli-${VERSION}/" \
+            -o "watch-cli.tar.gz" HEAD
+          SHA256="$(shasum -a 256 watch-cli.tar.gz | awk '{print $1}')"
+          echo "$SHA256" > watch-cli.tar.gz.sha256
+          echo "sha256=${SHA256}" >> "$GITHUB_OUTPUT"
+          echo "tarball: $(ls -lh watch-cli.tar.gz)"
+          echo "sha256:  ${SHA256}"
+
+      - name: Generate release notes
+        # Auto-draft from squashed PR titles since the previous tag.
+        # docs/releases.md "Release notes template" specifies the
+        # final shape; this seeds the draft and the maintainer
+        # hand-edits via the GH Release UI after the run.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PREV_TAG="$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || echo "")"
+          {
+            echo "## Highlights"
+            echo "- _(edit me before publish)_"
+            echo
+            echo "## What's new"
+            if [[ -n "$PREV_TAG" ]]; then
+              git log --merges --pretty=format:"- %s" "${PREV_TAG}..${GITHUB_REF_NAME}" \
+                | sed 's/Merge pull request #\([0-9]*\) from [^ ]* /(#\1) /' \
+                || echo "- _(no merge commits found between ${PREV_TAG} and ${GITHUB_REF_NAME})_"
+            else
+              echo "- Initial tagged release."
+            fi
+            echo
+            echo "## Schema version"
+            echo "Output schema: v1. See [output-schema.md](https://github.com/${GITHUB_REPOSITORY}/blob/v${VERSION}/docs/output-schema.md)."
+            echo
+            echo "## Install"
+            echo '```bash'
+            echo "brew tap sonpiaz/tap && brew install watch-cli            # macOS"
+            echo "curl -fsSL https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VERSION}/install.sh | bash"
+            echo "WATCH_CLI_VERSION=${VERSION} curl -fsSL <same-url> | bash  # pin"
+            echo '```'
+          } > release-notes.md
+          echo "── release-notes.md ──"
+          cat release-notes.md
+
+      - name: Create GH Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "v${VERSION}" \
+            --title "v${VERSION}" \
+            --notes-file release-notes.md \
+            watch-cli.tar.gz \
+            watch-cli.tar.gz.sha256 \
+            install.sh
+
+  publish-mcp:
+    name: Publish @sonpiaz/watch-cli-mcp to npm
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Sync mcp-server version to tag
+        # npm version --no-git-tag-version is idempotent if the
+        # version already matches; never errors on no-op.
+        working-directory: mcp-server
+        run: |
+          npm version --no-git-tag-version --allow-same-version "${{ needs.release.outputs.version }}"
+          echo "mcp-server/package.json version → $(jq -r .version package.json)"
+
+      - name: Build
+        working-directory: mcp-server
+        run: |
+          npm ci
+          npm run build
+
+      - name: Publish
+        working-directory: mcp-server
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public
+
+  bump-tap:
+    name: Open Homebrew tap bump PR
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout homebrew-tap
+        uses: actions/checkout@v4
+        with:
+          repository: sonpiaz/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_PAT }}
+          path: homebrew-tap
+
+      - name: Bump Formula/watch-cli.rb
+        # `url` resolves via v#{version} interpolation, so only
+        # `version` and `sha256` change between releases. See
+        # docs/homebrew.md "Auto-bump on release".
+        working-directory: homebrew-tap
+        run: |
+          VERSION="${{ needs.release.outputs.version }}"
+          SHA256="${{ needs.release.outputs.sha256 }}"
+          sed -i.bak \
+            -e "s/^  version \".*\"$/  version \"${VERSION}\"/" \
+            -e "s/^  sha256 \".*\"$/  sha256 \"${SHA256}\"/" \
+            Formula/watch-cli.rb
+          rm Formula/watch-cli.rb.bak
+          echo "── Formula/watch-cli.rb (head) ──"
+          head -15 Formula/watch-cli.rb
+
+      - name: Commit + push branch
+        working-directory: homebrew-tap
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_PAT }}
+        run: |
+          VERSION="${{ needs.release.outputs.version }}"
+          BRANCH="bump/watch-cli-${VERSION}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "${BRANCH}"
+          git add Formula/watch-cli.rb
+          git commit -m "watch-cli ${VERSION}"
+          git push -u origin "${BRANCH}"
+
+      - name: Open PR
+        working-directory: homebrew-tap
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_PAT }}
+          VERSION: ${{ needs.release.outputs.version }}
+          SHA256: ${{ needs.release.outputs.sha256 }}
+        run: |
+          cat > /tmp/pr-body.md <<EOF
+          Automated bump from watch-cli v${VERSION} release.
+
+          Tarball: https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VERSION}/watch-cli.tar.gz
+          SHA256:  ${SHA256}
+
+          Verify locally:
+
+              brew tap sonpiaz/tap
+              brew install --build-from-source watch-cli
+              brew test watch-cli
+              watch --version  # expect: watch-cli v${VERSION}
+          EOF
+          gh pr create \
+            --repo sonpiaz/homebrew-tap \
+            --title "watch-cli ${VERSION}" \
+            --body-file /tmp/pr-body.md

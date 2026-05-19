@@ -38,7 +38,21 @@
 # success (frames OK, transcribe failed → exit 4) still emits a block.
 set -uo pipefail
 
-VERSION="watch-cli v0.2.0"
+# Resolve symlinks so $ROOT_DIR points at the real install dir, not ~/.local.
+# Done up-front because --version needs to source lib/version.sh before
+# arg parsing decides what to print.
+SELF="${BASH_SOURCE[0]}"
+while [ -L "$SELF" ]; do
+  SELF_DIR="$(cd "$(dirname "$SELF")" && pwd)"
+  SELF="$(readlink "$SELF")"
+  [[ $SELF != /* ]] && SELF="$SELF_DIR/$SELF"
+done
+SELF_DIR="$(cd "$(dirname "$SELF")" && pwd)"
+ROOT_DIR="$(cd "$SELF_DIR/.." && pwd)"
+# shellcheck source=../lib/version.sh
+source "$ROOT_DIR/lib/version.sh"
+# shellcheck source=../lib/health.sh
+source "$ROOT_DIR/lib/health.sh"
 
 URL=""
 COUNT="8"
@@ -73,7 +87,7 @@ while [[ $# -gt 0 ]]; do
       exit 0
       ;;
     -V|--version)
-      echo "$VERSION"
+      echo "$WATCH_CLI_VERSION_STRING"
       exit 0
       ;;
     *)
@@ -86,18 +100,6 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
-
-SELF="${BASH_SOURCE[0]}"
-# Resolve symlinks so $ROOT_DIR points at the real install dir, not ~/.local.
-while [ -L "$SELF" ]; do
-  SELF_DIR="$(cd "$(dirname "$SELF")" && pwd)"
-  SELF="$(readlink "$SELF")"
-  [[ $SELF != /* ]] && SELF="$SELF_DIR/$SELF"
-done
-SELF_DIR="$(cd "$(dirname "$SELF")" && pwd)"
-ROOT_DIR="$(cd "$SELF_DIR/.." && pwd)"
-# shellcheck source=../lib/health.sh
-source "$ROOT_DIR/lib/health.sh"
 
 # Pipe mode implies JSON output. A consumer reading JSONL doesn't want
 # text-block markers interleaved between objects.

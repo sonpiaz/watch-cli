@@ -93,7 +93,23 @@ signup is enough to run the full pipeline end-to-end before you spend a cent.
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sonpiaz/watch-cli/main/install.sh | bash
+# macOS — Homebrew (recommended once v0.3.0 ships)
+brew tap sonpiaz/tap
+brew install watch-cli
+
+# Any OS — curl
+curl -fsSL https://github.com/sonpiaz/watch-cli/releases/latest/download/install.sh | bash
+```
+
+> The Homebrew path requires the v0.3.0 release to be cut first.
+> Until then, use the curl one-liner above — it auto-falls-back to
+> `git clone` of `main` when no published release exists yet.
+
+Pin a specific version:
+
+```bash
+WATCH_CLI_VERSION=0.3.0 curl -fsSL \
+  https://github.com/sonpiaz/watch-cli/releases/download/v0.3.0/install.sh | bash
 ```
 
 Or from a clone:

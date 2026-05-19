@@ -12,6 +12,18 @@
 
 set -uo pipefail
 
+# Resolve symlinks so $ROOT_DIR points at the real install dir, not ~/.local.
+SELF="${BASH_SOURCE[0]}"
+while [ -L "$SELF" ]; do
+  SELF_DIR="$(cd "$(dirname "$SELF")" && pwd)"
+  SELF="$(readlink "$SELF")"
+  [[ $SELF != /* ]] && SELF="$SELF_DIR/$SELF"
+done
+SELF_DIR="$(cd "$(dirname "$SELF")" && pwd)"
+ROOT_DIR="$(cd "$SELF_DIR/.." && pwd)"
+# shellcheck source=../lib/version.sh
+source "$ROOT_DIR/lib/version.sh"
+
 VIDEO=""
 COUNT="8"
 OUTDIR_ARG=""
@@ -23,7 +35,7 @@ while [[ $# -gt 0 ]]; do
       exit 0
       ;;
     -V|--version)
-      echo "watch-cli v0.2.0"
+      echo "$WATCH_CLI_VERSION_STRING"
       exit 0
       ;;
     *)

@@ -1,9 +1,20 @@
 #!/usr/bin/env bash
 # watch-cli installer.
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/sonpiaz/watch-cli/main/install.sh | bash
+#   curl -fsSL https://github.com/sonpiaz/watch-cli/releases/latest/download/install.sh | bash
+# or pin a version:
+#   WATCH_CLI_VERSION=0.3.0 curl -fsSL \
+#     https://github.com/sonpiaz/watch-cli/releases/download/v0.3.0/install.sh | bash
 # or, from a clone:
 #   ./install.sh
+#
+# Install strategy:
+#   - Default: fetch the latest GH Release tarball
+#     (releases/latest/download/watch-cli.tar.gz) and unpack into
+#     $INSTALL_DIR.
+#   - WATCH_CLI_VERSION=X.Y.Z set: pin to that specific release.
+#   - Fallback: if no GH Releases exist yet (bootstrap window before
+#     v0.3.0 ships), git clone main HEAD into $INSTALL_DIR.
 #
 # Flags:
 #   --with-skill   After install, drop SKILL.md into ~/.claude/skills/watch-cli/
@@ -23,6 +34,9 @@ INSTALL_DIR="${WATCH_CLI_HOME:-$HOME/.watch-cli}"
 BIN_LINK_DIR="${WATCH_CLI_BIN:-$HOME/.local/bin}"
 CLAUDE_SKILLS_DIR="${HOME}/.claude/skills"
 
+# Optional: pin to a specific release. Empty → latest.
+WATCH_CLI_VERSION="${WATCH_CLI_VERSION:-}"
+
 WITH_SKILL=0
 WITH_MCP=0
 WITH_LOCAL=0
@@ -37,8 +51,14 @@ usage() {
 watch-cli installer
 
 Usage:
-  curl -fsSL https://raw.githubusercontent.com/sonpiaz/watch-cli/main/install.sh | bash
+  curl -fsSL https://github.com/sonpiaz/watch-cli/releases/latest/download/install.sh | bash
+  WATCH_CLI_VERSION=0.3.0 curl -fsSL \
+    https://github.com/sonpiaz/watch-cli/releases/download/v0.3.0/install.sh | bash
   ./install.sh [--with-skill] [--with-mcp] [--with-local]
+
+Env:
+  WATCH_CLI_VERSION  Pin to a specific release (e.g. 0.3.0).
+                     Unset → install the latest release.
 
 Flags:
   --with-skill   After install, copy SKILL.md into ~/.claude/skills/watch-cli/
@@ -88,14 +108,87 @@ fi
 green "✓ Dependencies present (yt-dlp, ffmpeg, jq, curl, python3)"
 
 # ── Install/update repo ──
+# Strategy:
+#   1. If $WATCH_CLI_VERSION is set, fetch that exact release tarball.
+#   2. Otherwise fetch releases/latest/download/watch-cli.tar.gz —
+#      a GH-managed redirect that always resolves to the newest tag.
+#   3. If no GH Release exists yet (bootstrap window, HTTP 404), fall
+#      back to git clone of main. This branch is removed once v0.3.0
+#      is live.
+#   4. If $INSTALL_DIR is an existing git clone, keep using git pull
+#      (developer working from a clone, not the curl installer).
+_resolve_tarball_url() {
+  if [[ -n "$WATCH_CLI_VERSION" ]]; then
+    echo "$REPO_URL/releases/download/v${WATCH_CLI_VERSION}/watch-cli.tar.gz"
+  else
+    echo "$REPO_URL/releases/latest/download/watch-cli.tar.gz"
+  fi
+}
+
+_resolve_checksum_url() {
+  if [[ -n "$WATCH_CLI_VERSION" ]]; then
+    echo "$REPO_URL/releases/download/v${WATCH_CLI_VERSION}/watch-cli.tar.gz.sha256"
+  else
+    echo "$REPO_URL/releases/latest/download/watch-cli.tar.gz.sha256"
+  fi
+}
+
+_install_from_tarball() {
+  local tarball_url checksum_url tmpdir tarball_path expected actual
+  tarball_url="$(_resolve_tarball_url)"
+  checksum_url="$(_resolve_checksum_url)"
+
+  tmpdir="$(mktemp -d -t watch-cli-install.XXXXXX)"
+  trap 'rm -rf "$tmpdir"' RETURN
+  tarball_path="$tmpdir/watch-cli.tar.gz"
+
+  yellow "Downloading $tarball_url …"
+  # -f makes curl fail on 4xx/5xx; -L follows the latest-redirect.
+  if ! curl -fsSL "$tarball_url" -o "$tarball_path"; then
+    return 1
+  fi
+
+  # Best-effort checksum verify. Asset is uploaded alongside the
+  # tarball; mismatch is fatal because a tampered tarball is worse
+  # than a bootstrap fallback.
+  if expected="$(curl -fsSL "$checksum_url" 2>/dev/null | awk '{print $1}')" \
+     && [[ -n "$expected" ]]; then
+    actual="$(shasum -a 256 "$tarball_path" | awk '{print $1}')"
+    if [[ "$actual" != "$expected" ]]; then
+      red "[install] error: tarball-checksum-mismatch tag=tarball-checksum-mismatch"
+      echo "  expected: $expected"
+      echo "  actual:   $actual"
+      return 1
+    fi
+    green "✓ tarball SHA256 verified"
+  else
+    yellow "⚠ no checksum file on the release — skipping verify"
+  fi
+
+  mkdir -p "$INSTALL_DIR"
+  # --strip-components=1 drops the top-level watch-cli-X.Y.Z/ dir
+  # from the git-archive output, so $INSTALL_DIR is the tree root.
+  tar -xzf "$tarball_path" -C "$INSTALL_DIR" --strip-components=1
+}
+
 if [[ -d "$INSTALL_DIR/.git" ]]; then
-  yellow "Updating existing install at $INSTALL_DIR …"
+  yellow "Updating existing git clone at $INSTALL_DIR …"
   git -C "$INSTALL_DIR" pull --rebase --quiet
+  green "✓ watch-cli updated at $INSTALL_DIR"
+elif _install_from_tarball; then
+  green "✓ watch-cli installed at $INSTALL_DIR (from release tarball)"
 else
-  yellow "Cloning watch-cli to $INSTALL_DIR …"
+  # Bootstrap fallback for the window before the first GH Release
+  # exists. Remove once v0.3.0 is shipped and the tarball is live.
+  yellow "Release tarball not available — falling back to git clone …"
+  if [[ -d "$INSTALL_DIR" && ! -d "$INSTALL_DIR/.git" ]]; then
+    # A previous tarball install left an INSTALL_DIR without .git;
+    # nuke so git clone has a clean target.
+    rm -rf "$INSTALL_DIR"
+  fi
   git clone --quiet "$REPO_URL" "$INSTALL_DIR"
+  green "✓ watch-cli installed at $INSTALL_DIR (from git clone)"
 fi
-green "✓ watch-cli installed at $INSTALL_DIR"
 
 # ── Symlink bins ──
 mkdir -p "$BIN_LINK_DIR"
