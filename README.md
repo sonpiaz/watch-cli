@@ -1,15 +1,28 @@
 # watch-cli
 
-Give your AI agent eyes and ears for any social video.
+**Watch any social video → get an architecture diagram, working component, runnable notebook, or step-by-step cheat sheet — automatically.**
+
+Eyes and ears for your AI agent. watch-cli composes `yt-dlp` + `ffmpeg` + a Whisper-class ASR into a single command that hands an agent the raw materials to "watch" any video: VIDEO + FRAMES + TRANSCRIPT, ready for an LLM to read frames as images and transcript as text.
 
 ```bash
 watch https://twitter.com/anyone/status/12345
 ```
 
-You get back: a video file, evenly-spaced frames as JPGs, and the full
-audio transcript. Your agent reads them and "watches" the video — works
-on YouTube, X, LinkedIn, TikTok, Reddit, Vimeo, and Facebook. Login-walled
-posts (LinkedIn, X, FB) fall back to your browser cookies automatically.
+Works on YouTube, X, LinkedIn, TikTok, Reddit, Vimeo, and Facebook. Login-walled posts (LinkedIn, private X, FB) fall back to your browser cookies automatically.
+
+## What you can build
+
+Hand the `watch` output to your agent with one of five prompts in [`prompts/`](prompts/):
+
+| Drop in a video of… | Get back |
+|---|---|
+| A coding walkthrough | [Working project files](prompts/implement-from-video.md) |
+| A system architecture talk | [Interactive architecture diagram](prompts/extract-architecture.md) |
+| A UI / motion demo | [Working React component](prompts/clone-ux.md) |
+| A paper or research talk | [Runnable notebook](prompts/paper-to-code.md) |
+| A long tutorial | [Step-by-step cheat sheet](prompts/tutorial-walkthrough.md) |
+
+The prompt library is what turns *"video → frames + transcript"* into *"video → working artifact"*. The full [Prompt library](#prompt-library) section below has copy-paste templates.
 
 ---
 
