@@ -283,6 +283,56 @@ parsing fragile details guarantees breakage on the next release.
 
 ---
 
+## Pipe mode (JSONL)
+
+`watch --pipe` accepts one URL per line on stdin and emits one
+compact JSON object per URL on stdout — a JSONL stream. The mode is
+auto-enabled when stdin is not a TTY *and* no URL argument was
+passed, so `cat urls.txt | watch` Just Works without the explicit
+flag.
+
+The pipe-mode emission rules:
+
+- One stdout line per stdin URL, in input order.
+- Each line is the same v1 JSON object documented above when the run
+  succeeds (or partially succeeds — exit 4 with `transcript:null`).
+- On a per-URL failure that prevented JSON emission (download error,
+  invalid URL, extract-frames crash) the line is an **error object**:
+
+  ```json
+  {"version":1,"url":"<input>","video_path":null,"duration_sec":null,
+   "frame_paths":null,"transcript":null,"exit_code":<rc>,"error":"<tag>"}
+  ```
+
+  Error objects keep `version: 1` so a consumer reading JSONL can
+  always detect the schema, and `exit_code` carries the documented
+  code from [`exit-codes.md`](exit-codes.md) (`3` download, `64`
+  invalid URL, etc.). The `error` field carries a short tag.
+
+- Blank lines and `#`-prefixed comment lines on stdin are skipped
+  silently.
+
+- Per-URL failures do **not** abort the pipe. The loop keeps reading
+  and the worst exit code across all URLs is the process exit. A
+  consumer that only cares whether *any* URL succeeded can branch on
+  per-line `exit_code` instead of the process exit.
+
+Pipe mode implies `--format json`. The text-format block markers
+(`WATCH_OUTPUT_VERSION:`, `VIDEO:`, …) are not emitted in pipe mode
+because they would interleave between JSONL records and break the
+"one line per record" contract.
+
+A minimal consumer:
+
+```bash
+cat urls.txt | watch --pipe | jq -c 'select(.exit_code == 0) | .transcript'
+```
+
+See [`../examples/batch-watch.sh`](../examples/batch-watch.sh) for a
+fuller example that writes `results.jsonl` to disk.
+
+---
+
 ## Cross-references
 
 - Exit code semantics, stderr tag conventions, partial-success rule

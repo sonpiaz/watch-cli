@@ -54,6 +54,20 @@ if [[ ! -f "$INPUT" ]]; then
   exit 64
 fi
 
+# Audio scene Q&A requires a multimodal LLM; no local open-source
+# equivalent ships at the quality bar today. If the user explicitly
+# requested local mode, fail loud — silently falling back to an API
+# call would ship audio over the wire without consent.
+if [[ "${_WATCH_AUDIO_MODE_RAW:-}" == "local" ]]; then
+  cat >&2 <<'ERR'
+[audio-q] error: audio-q has no local backend tag=audio-q-requires-api
+Audio scene Q&A requires a hosted model. Either:
+  - unset WATCH_AUDIO_MODE to use the configured API path, or
+  - export WATCH_AUDIO_MODE=kyma (or byok) for this call.
+ERR
+  exit 2
+fi
+
 if ! watch_cli_audio_mode_check "understand"; then
   echo "[audio-q] error: no usable audio backend tag=transcribe-other" >&2
   exit 4

@@ -14,6 +14,19 @@
 #
 # Kyma mode wins when both are present.
 
+# Capture the user-supplied WATCH_AUDIO_MODE *before* env.sh overwrites
+# it with auto-detected values (kyma / direct / groq-only / none).
+# audio-routing.sh reads _WATCH_AUDIO_MODE_RAW so an explicit user
+# choice (local / kyma / byok) is honored as a contract.
+#
+# Guarded so a second `source lib/env.sh` (e.g. via lib/audio-routing.sh
+# re-sourcing) does not clobber the captured value with the
+# auto-detected one env.sh wrote on first load.
+if [[ -z "${_WATCH_AUDIO_MODE_RAW_CAPTURED:-}" ]]; then
+  export _WATCH_AUDIO_MODE_RAW="${WATCH_AUDIO_MODE:-}"
+  export _WATCH_AUDIO_MODE_RAW_CAPTURED=1
+fi
+
 # Idempotent: only load once per shell.
 [[ -n "${WATCH_CLI_ENV_LOADED:-}" ]] && return 0
 export WATCH_CLI_ENV_LOADED=1

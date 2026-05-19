@@ -3,23 +3,39 @@
 # Speech-to-text on any media file. Prints the transcript to stdout.
 # Auto-extracts audio from video and downsamples to mono 16kHz mp3 first.
 #
-# Routing:
-#   - Kyma mode (KYMA_API_KEY set): POST api.kymaapi.com/v1/audio/transcriptions
-#     One key opens every gate. Free credit at signup covers hundreds of videos.
-#     Get a Kyma key at https://kymaapi.com.
-#   - Direct mode (GROQ_API_KEY set): POST api.groq.com directly (BYO).
+# Routing (resolved at startup, single decision):
 #
-# Exit codes (see docs/exit-codes.md):
+#   WATCH_AUDIO_MODE       Result
+#   ───────────────────    ──────────────────────────────────────────
+#   local                  whisper.cpp on this machine — fully
+#                          offline, no audio leaves the device.
+#                          Requires whisper-cli (or main) on PATH and
+#                          ~/.watch-cli/models/ggml-large-v3-turbo.bin
+#                          (run install.sh --with-local).
+#   kyma                   POST api.kymaapi.com/v1/audio/transcriptions
+#                          One key opens every gate. Free credit at
+#                          signup covers hundreds of videos.
+#                          Get a Kyma key at https://kymaapi.com.
+#   byok                   POST api.groq.com directly (BYO).
+#   (unset)                Auto-detect: prefers local > kyma > byok.
+#                          Local wins when both binary and model are
+#                          present.
+#
+# An explicit WATCH_AUDIO_MODE is a contract — the script never falls
+# back to a different path. See docs/offline-mode.md for the full
+# routing table and exit-code semantics.
+#
+# Exit codes (see docs/exit-codes.md and docs/offline-mode.md):
 #   0 success · 1 general · 2 missing-dep · 4 transcribe fail · 64 usage error
 
 set -uo pipefail
 
-# Locate self → parent dir → lib/env.sh.
+# Locate self → parent dir → lib/{env,audio-routing,model-checksums}.sh.
 SELF="${BASH_SOURCE[0]}"
 SELF_DIR="$(cd "$(dirname "$SELF")" && pwd)"
 ROOT_DIR="$(cd "$SELF_DIR/.." && pwd)"
-# shellcheck source=../lib/env.sh
-source "$ROOT_DIR/lib/env.sh"
+# shellcheck source=../lib/audio-routing.sh
+source "$ROOT_DIR/lib/audio-routing.sh"
 
 INPUT=""
 LANG=""
@@ -27,7 +43,7 @@ LANG=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -h|--help)
-      sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     -V|--version)
@@ -50,25 +66,34 @@ if [[ -z "$INPUT" ]]; then
   exit 64
 fi
 
+# Resolve which backend to use up-front, before any audio is read.
+# Per docs/offline-mode.md the routing decision is made first so a
+# wrong WATCH_AUDIO_MODE surfaces missing-dep / missing-key before a
+# missing input file does.
+if ! watch_cli_resolve_audio_backend "transcribe"; then
+  exit "${WATCH_AUDIO_RESOLVE_EXIT:-2}"
+fi
+
 if [[ ! -f "$INPUT" ]]; then
   echo "[transcribe] error: file not found: $INPUT tag=usage-error" >&2
   exit 64
 fi
 
-if ! watch_cli_audio_mode_check "transcribe"; then
-  echo "[transcribe] error: no usable audio backend tag=transcribe-other" >&2
-  exit 4
-fi
-
-for dep in ffmpeg ffprobe curl; do
+for dep in ffmpeg ffprobe; do
   if ! command -v "$dep" >/dev/null 2>&1; then
     echo "[transcribe] error: $dep not found on PATH tag=missing-dep:$dep" >&2
     exit 2
   fi
 done
+# curl is only needed for API modes; skip when running fully local.
+if [[ "$WATCH_AUDIO_RESOLVED_MODE" != "local" ]] && ! command -v curl >/dev/null 2>&1; then
+  echo "[transcribe] error: curl not found on PATH tag=missing-dep:curl" >&2
+  exit 2
+fi
 
-# Always normalize to mono 16kHz mp3 — both Kyma and Groq accept it, and
-# this keeps payloads under 25MB even for ~30min sources.
+# Always normalize to mono 16kHz mp3 — the API backends accept it, and
+# this keeps payloads under 25MB even for ~30min sources. whisper.cpp
+# accepts mp3 in current builds too.
 HASH="$(echo -n "$INPUT" | shasum | cut -c1-10)"
 AUDIO="/tmp/transcribe_${HASH}.mp3"
 
@@ -80,17 +105,22 @@ if [[ ! -s "$AUDIO" ]]; then
   fi
 fi
 
-# POSIX size check: wc -c works on both macOS and Linux without a flag.
-SIZE="$(wc -c < "$AUDIO" | tr -d ' ')"
-if (( SIZE > 25 * 1024 * 1024 )); then
-  echo "[transcribe] error: audio is $((SIZE / 1024 / 1024))MB — exceeds 25MB cap. Trim source first. tag=transcribe-other" >&2
-  exit 4
+# Only the API paths have the 25MB upload cap; whisper.cpp reads from
+# disk so any size goes. Skip the check in local mode.
+if [[ "$WATCH_AUDIO_RESOLVED_MODE" != "local" ]]; then
+  # POSIX size check: wc -c works on both macOS and Linux without a flag.
+  SIZE="$(wc -c < "$AUDIO" | tr -d ' ')"
+  if (( SIZE > 25 * 1024 * 1024 )); then
+    echo "[transcribe] error: audio is $((SIZE / 1024 / 1024))MB — exceeds 25MB cap. Trim source first. tag=transcribe-other" >&2
+    exit 4
+  fi
 fi
 
 # Silence guard: ASR models hallucinate on silent input ("Thank you" is a
-# common Whisper failure mode). Skip the provider call entirely so we
+# common Whisper failure mode). Skip the inference call entirely so we
 # never return fabricated text. -60 dB is well below room noise; anything
-# below that is effectively digital silence.
+# below that is effectively digital silence. Applies to local and API
+# modes identically per docs/offline-mode.md.
 MAX_DB="$(ffmpeg -i "$AUDIO" -af volumedetect -f null /dev/null 2>&1 | \
           awk -F': ' '/max_volume/ { gsub(" dB", "", $2); print $2; exit }')"
 if [[ -n "$MAX_DB" ]]; then
@@ -101,7 +131,41 @@ if [[ -n "$MAX_DB" ]]; then
   fi
 fi
 
-case "$WATCH_AUDIO_MODE" in
+case "$WATCH_AUDIO_RESOLVED_MODE" in
+  local)
+    # whisper.cpp writes the transcript to <stem>.txt. Use a temp stem
+    # so concurrent invocations don't trample each other.
+    STEM="/tmp/transcribe_${HASH}_$$"
+    TXT="${STEM}.txt"
+    rm -f "$TXT"
+    # WATCH_DEBUG=1 routes whisper progress to stderr; otherwise swallow
+    # so the binary stays quiet on success.
+    if [[ -n "${WATCH_DEBUG:-}" ]]; then
+      WHISPER_STDERR="/dev/stderr"
+    else
+      WHISPER_STDERR="/dev/null"
+    fi
+    if ! "$WATCH_WHISPER_BIN" -m "$WATCH_WHISPER_MODEL" -f "$AUDIO" \
+        --output-txt -of "$STEM" >"$WHISPER_STDERR" 2>&1; then
+      rm -f "$TXT"
+      echo "[transcribe] error: whisper.cpp returned non-zero tag=transcribe-other" >&2
+      exit 4
+    fi
+    if [[ ! -s "$TXT" ]]; then
+      rm -f "$TXT"
+      echo "[transcribe] error: whisper.cpp returned empty transcript tag=transcribe-silent-audio" >&2
+      exit 4
+    fi
+    # Strip trailing newline and emit. Then clean up the txt file.
+    # printf with %s avoids re-adding a newline awk/cat would.
+    TEXT="$(cat "$TXT")"
+    rm -f "$TXT"
+    if [[ -z "$TEXT" ]]; then
+      echo "[transcribe] error: whisper.cpp returned empty transcript tag=transcribe-silent-audio" >&2
+      exit 4
+    fi
+    echo "$TEXT"
+    ;;
   kyma)
     # Use the "transcribe" alias rather than a concrete SKU. Lets Kyma swap
     # the underlying model (Whisper v4, Voxtral, …) without breaking watch-cli.
@@ -141,7 +205,7 @@ case "$WATCH_AUDIO_MODE" in
         exit 4 ;;
     esac
     ;;
-  direct|groq-only)
+  byok)
     ARGS=(
       -F "file=@$AUDIO"
       -F "model=whisper-large-v3-turbo"
@@ -156,7 +220,7 @@ case "$WATCH_AUDIO_MODE" in
       -H "User-Agent: $WATCH_CLI_USER_AGENT" \
       "${ARGS[@]}" \
       https://api.groq.com/openai/v1/audio/transcriptions 2>/dev/null)" || {
-      echo "[transcribe] error: Groq request failed tag=transcribe-other" >&2
+      echo "[transcribe] error: BYOK request failed tag=transcribe-other" >&2
       exit 4
     }
     HTTP_CODE="${BODY: -3}"
@@ -164,13 +228,13 @@ case "$WATCH_AUDIO_MODE" in
     case "$HTTP_CODE" in
       200) echo "$TEXT" ;;
       402|429)
-        echo "[transcribe] error: Groq quota or rate limit (HTTP $HTTP_CODE) tag=transcribe-quota" >&2
+        echo "[transcribe] error: BYOK quota or rate limit (HTTP $HTTP_CODE) tag=transcribe-quota" >&2
         exit 4 ;;
       408|504)
-        echo "[transcribe] error: Groq timeout (HTTP $HTTP_CODE) tag=transcribe-timeout" >&2
+        echo "[transcribe] error: BYOK timeout (HTTP $HTTP_CODE) tag=transcribe-timeout" >&2
         exit 4 ;;
       *)
-        echo "[transcribe] error: Groq returned HTTP $HTTP_CODE: $TEXT tag=transcribe-other" >&2
+        echo "[transcribe] error: BYOK returned HTTP $HTTP_CODE: $TEXT tag=transcribe-other" >&2
         exit 4 ;;
     esac
     ;;

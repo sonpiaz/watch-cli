@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# watch <url> [frame-count] [--cookies <file>] [--format text|json]
+# watch <url> [frame-count] [--cookies <file>] [--format text|json] [--pipe]
 # One-shot orchestrator: download a video, extract evenly-spaced frames,
 # transcribe the audio. Prints a single structured block easy for an AI
 # agent to consume.
@@ -20,6 +20,13 @@
 #   {"version":1,"video_path":"…","duration_sec":…,"frame_paths":[…],
 #    "transcript":"…"|null,"exit_code":…,"transcribe_cost_usd":…}
 #
+# Pipe mode (--pipe): reads URLs from stdin (one per line), emits one
+# compact JSON object per URL to stdout (JSONL). Implies --format json
+# and suppresses text-format block markers. Errors per line keep
+# version:1 so consumers can detect the schema, and processing
+# continues to the next URL. Auto-enabled when stdin is not a TTY and
+# no URL argument is passed.
+#
 # Exit codes: see docs/exit-codes.md.
 #   0 success · 1 general · 2 missing-dep · 3 download fail
 #   4 transcribe fail (partial: frames present, transcript=null)
@@ -37,6 +44,7 @@ URL=""
 COUNT="8"
 COOKIES_ARG=""
 FORMAT="text"
+PIPE=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -56,8 +64,12 @@ while [[ $# -gt 0 ]]; do
       FORMAT="${1#*=}"
       shift
       ;;
+    --pipe)
+      PIPE=1
+      shift
+      ;;
     -h|--help)
-      sed -n '2,31p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '2,38p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     -V|--version)
@@ -75,8 +87,26 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ -z "$URL" ]]; then
-  echo "usage: watch <url> [frame-count] [--cookies <file>] [--format text|json] tag=usage-error" >&2
+SELF="${BASH_SOURCE[0]}"
+SELF_DIR="$(cd "$(dirname "$SELF")" && pwd)"
+ROOT_DIR="$(cd "$SELF_DIR/.." && pwd)"
+# shellcheck source=../lib/health.sh
+source "$ROOT_DIR/lib/health.sh"
+
+# Auto-enable pipe mode when stdin is not a TTY and no URL was passed.
+# This lets `cat urls.txt | watch` Just Work without an explicit flag.
+if [[ $PIPE -eq 0 && -z "$URL" ]] && [[ ! -t 0 ]]; then
+  PIPE=1
+fi
+
+# Pipe mode implies JSON output. A consumer reading JSONL doesn't want
+# text-block markers interleaved between objects.
+if [[ $PIPE -eq 1 ]]; then
+  FORMAT="json"
+fi
+
+if [[ $PIPE -eq 0 && -z "$URL" ]]; then
+  echo "usage: watch <url> [frame-count] [--cookies <file>] [--format text|json] [--pipe] tag=usage-error" >&2
   exit 64
 fi
 
@@ -84,9 +114,6 @@ if [[ "$FORMAT" != "text" && "$FORMAT" != "json" ]]; then
   echo "[watch] error: --format must be 'text' or 'json' (got '$FORMAT') tag=usage-error" >&2
   exit 64
 fi
-
-SELF="${BASH_SOURCE[0]}"
-SELF_DIR="$(cd "$(dirname "$SELF")" && pwd)"
 
 # Dependency check up-front so we exit 2, not 1, when a binary is missing.
 for dep in yt-dlp ffmpeg ffprobe jq curl python3; do
@@ -96,78 +123,149 @@ for dep in yt-dlp ffmpeg ffprobe jq curl python3; do
   fi
 done
 
-echo "[watch] downloading $URL …" >&2
-# shellcheck disable=SC2086
-VIDEO="$("$SELF_DIR/dl-video" "$URL" $COOKIES_ARG)"
-DL_RC=$?
-if [[ $DL_RC -ne 0 ]]; then
-  # dl-video already emitted a stderr line with tag=download-* and exited 3.
-  # Surface its exit code unchanged.
-  exit $DL_RC
-fi
-echo "[watch] video: $VIDEO" >&2
+# ── Per-URL pipeline ──────────────────────────────────────────────
+# Runs the download → frames → transcribe sequence for one URL.
+# Emits the documented block on stdout, returns the exit code.
+#
+# In pipe mode this is called once per stdin line; in single-URL mode
+# it runs exactly once.
+process_url() {
+  local url="$1"
+  local count="$2"
+  local format="$3"
+  local cookies_arg="$4"
+  local pipe_mode="$5"
 
-DUR="$(ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 "$VIDEO" 2>/dev/null || echo 0)"
-DUR_INT="${DUR%.*}"
-[[ -z "$DUR_INT" ]] && DUR_INT=0
+  # Pre-flight: upstream platform probe. Not a gate — just warns when
+  # yt-dlp's extractor for this domain looks broken today, so a doomed
+  # 30s download surfaces a hint up front.
+  check_platform_for_url "$url" || true
 
-echo "[watch] extracting $COUNT frames …" >&2
-FRAMES="$("$SELF_DIR/extract-frames" "$VIDEO" "$COUNT")"
-EF_RC=$?
-if [[ $EF_RC -ne 0 ]]; then
-  echo "[watch] error: extract-frames failed (rc=$EF_RC)" >&2
-  exit 1
-fi
-
-echo "[watch] transcribing audio …" >&2
-# Capture transcribe output and exit code separately. A non-zero exit
-# means partial success — emit the block with transcript=null and exit 4.
-TRANSCRIPT="$("$SELF_DIR/transcribe" "$VIDEO")"
-TR_RC=$?
-
-EXIT_CODE=0
-if [[ $TR_RC -ne 0 ]]; then
-  EXIT_CODE=4
-  TRANSCRIPT=""
-fi
-
-# ── Emit the contract block ──
-if [[ "$FORMAT" == "json" ]]; then
-  # Build frame_paths array from newline-separated FRAMES var.
-  # Filter out empty lines so a trailing newline doesn't yield [""].
-  FRAME_JSON="$(printf '%s\n' "$FRAMES" | jq -R . | jq -cs 'map(select(. != ""))')"
-
-  if [[ $TR_RC -ne 0 ]]; then
-    jq -cn \
-      --argjson frames "$FRAME_JSON" \
-      --arg video "$VIDEO" \
-      --argjson dur "$DUR_INT" \
-      --argjson rc "$EXIT_CODE" \
-      '{version:1, video_path:$video, duration_sec:$dur, frame_paths:$frames, transcript:null, exit_code:$rc}'
-  else
-    jq -cn \
-      --argjson frames "$FRAME_JSON" \
-      --arg video "$VIDEO" \
-      --argjson dur "$DUR_INT" \
-      --arg transcript "$TRANSCRIPT" \
-      --argjson rc "$EXIT_CODE" \
-      '{version:1, video_path:$video, duration_sec:$dur, frame_paths:$frames, transcript:$transcript, exit_code:$rc}'
+  echo "[watch] downloading $url …" >&2
+  local video dl_rc
+  # shellcheck disable=SC2086
+  video="$("$SELF_DIR/dl-video" "$url" $cookies_arg)"
+  dl_rc=$?
+  if [[ $dl_rc -ne 0 ]]; then
+    if [[ "$pipe_mode" -eq 1 ]]; then
+      _emit_pipe_error "$url" "$dl_rc" "download-failed"
+      return $dl_rc
+    fi
+    return $dl_rc
   fi
-else
-  echo "WATCH_OUTPUT_VERSION: 1"
-  echo "VIDEO: $VIDEO"
-  echo "DURATION: $DUR_INT"
-  echo "FRAMES:"
-  while IFS= read -r f; do
-    [[ -n "$f" ]] && echo "  $f"
-  done <<< "$FRAMES"
-  echo "TRANSCRIPT:"
-  if [[ $TR_RC -ne 0 ]]; then
-    echo "  null"
-  else
-    echo "$TRANSCRIPT" | sed 's/^/  /'
+  echo "[watch] video: $video" >&2
+
+  local dur dur_int
+  dur="$(ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 "$video" 2>/dev/null || echo 0)"
+  dur_int="${dur%.*}"
+  [[ -z "$dur_int" ]] && dur_int=0
+
+  echo "[watch] extracting $count frames …" >&2
+  local frames ef_rc
+  frames="$("$SELF_DIR/extract-frames" "$video" "$count")"
+  ef_rc=$?
+  if [[ $ef_rc -ne 0 ]]; then
+    echo "[watch] error: extract-frames failed (rc=$ef_rc)" >&2
+    if [[ "$pipe_mode" -eq 1 ]]; then
+      _emit_pipe_error "$url" 1 "extract-frames-failed"
+    fi
+    return 1
   fi
-  echo "EXIT: $EXIT_CODE"
+
+  echo "[watch] transcribing audio …" >&2
+  local transcript tr_rc
+  transcript="$("$SELF_DIR/transcribe" "$video")"
+  tr_rc=$?
+
+  local exit_code=0
+  if [[ $tr_rc -ne 0 ]]; then
+    exit_code=4
+    transcript=""
+  fi
+
+  # ── Emit the contract block ──
+  if [[ "$format" == "json" ]]; then
+    local frame_json
+    frame_json="$(printf '%s\n' "$frames" | jq -R . | jq -cs 'map(select(. != ""))')"
+
+    if [[ $tr_rc -ne 0 ]]; then
+      jq -cn \
+        --argjson frames "$frame_json" \
+        --arg video "$video" \
+        --argjson dur "$dur_int" \
+        --argjson rc "$exit_code" \
+        '{version:1, video_path:$video, duration_sec:$dur, frame_paths:$frames, transcript:null, exit_code:$rc}'
+    else
+      jq -cn \
+        --argjson frames "$frame_json" \
+        --arg video "$video" \
+        --argjson dur "$dur_int" \
+        --arg transcript "$transcript" \
+        --argjson rc "$exit_code" \
+        '{version:1, video_path:$video, duration_sec:$dur, frame_paths:$frames, transcript:$transcript, exit_code:$rc}'
+    fi
+  else
+    echo "WATCH_OUTPUT_VERSION: 1"
+    echo "VIDEO: $video"
+    echo "DURATION: $dur_int"
+    echo "FRAMES:"
+    while IFS= read -r f; do
+      [[ -n "$f" ]] && echo "  $f"
+    done <<< "$frames"
+    echo "TRANSCRIPT:"
+    if [[ $tr_rc -ne 0 ]]; then
+      echo "  null"
+    else
+      echo "$transcript" | sed 's/^/  /'
+    fi
+    echo "EXIT: $exit_code"
+  fi
+
+  return $exit_code
+}
+
+# Emit a v1-shaped error object on stdout for pipe mode. Keeps
+# `version: 1` so consumers can detect the schema and branch on
+# exit_code. Other fields are null.
+_emit_pipe_error() {
+  local url="$1"
+  local rc="$2"
+  local tag="$3"
+  jq -cn \
+    --arg url "$url" \
+    --argjson rc "$rc" \
+    --arg tag "$tag" \
+    '{version:1, url:$url, video_path:null, duration_sec:null, frame_paths:null, transcript:null, exit_code:$rc, error:$tag}'
+}
+
+# ── Pipe-mode loop ────────────────────────────────────────────────
+if [[ $PIPE -eq 1 ]]; then
+  # Track the worst-case exit code so the pipeline as a whole reports
+  # a non-zero exit when any URL failed. Successful runs return 0.
+  PIPE_WORST=0
+  while IFS= read -r LINE || [[ -n "$LINE" ]]; do
+    # Skip blank lines / comments.
+    LINE="${LINE%$'\r'}"
+    [[ -z "$LINE" ]] && continue
+    case "$LINE" in
+      \#*) continue ;;
+    esac
+    # Basic URL sanity check: must contain `://` and at least one
+    # alphanumeric char. Anything else surfaces as an error object
+    # but the loop continues.
+    if [[ ! "$LINE" =~ ^[a-zA-Z][a-zA-Z0-9+.-]*://[^[:space:]]+$ ]]; then
+      _emit_pipe_error "$LINE" 64 "invalid-url"
+      (( PIPE_WORST < 64 )) && PIPE_WORST=64
+      continue
+    fi
+    if ! process_url "$LINE" "$COUNT" "$FORMAT" "$COOKIES_ARG" 1; then
+      RC=$?
+      (( PIPE_WORST < RC )) && PIPE_WORST=$RC
+    fi
+  done
+  exit "$PIPE_WORST"
 fi
 
-exit $EXIT_CODE
+# ── Single-URL mode ───────────────────────────────────────────────
+process_url "$URL" "$COUNT" "$FORMAT" "$COOKIES_ARG" 0
+exit $?
