@@ -8,8 +8,11 @@
 #     One key opens every gate. Free credit at signup covers hundreds of videos.
 #     Get a Kyma key at https://kymaapi.com.
 #   - Direct mode (GROQ_API_KEY set): POST api.groq.com directly (BYO).
+#
+# Exit codes (see docs/exit-codes.md):
+#   0 success · 1 general · 2 missing-dep · 4 transcribe fail · 64 usage error
 
-set -euo pipefail
+set -uo pipefail
 
 # Locate self → parent dir → lib/env.sh.
 SELF="${BASH_SOURCE[0]}"
@@ -18,21 +21,51 @@ ROOT_DIR="$(cd "$SELF_DIR/.." && pwd)"
 # shellcheck source=../lib/env.sh
 source "$ROOT_DIR/lib/env.sh"
 
-INPUT="${1:-}"
-LANG="${2:-}"
+INPUT=""
+LANG=""
 
-if [[ -z "$INPUT" || ! -f "$INPUT" ]]; then
-  echo "usage: transcribe <audio-or-video> [language]" >&2
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help)
+      sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'
+      exit 0
+      ;;
+    -V|--version)
+      echo "watch-cli v0.2.0"
+      exit 0
+      ;;
+    *)
+      if [[ -z "$INPUT" ]]; then
+        INPUT="$1"
+      elif [[ -z "$LANG" ]]; then
+        LANG="$1"
+      fi
+      shift
+      ;;
+  esac
+done
+
+if [[ -z "$INPUT" ]]; then
+  echo "usage: transcribe <audio-or-video> [language] tag=usage-error" >&2
   exit 64
 fi
 
-watch_cli_audio_mode_check "transcribe" || exit 1
-
-if ! command -v ffmpeg >/dev/null 2>&1; then
-  echo "[transcribe] ffmpeg required for audio extraction. Install:" >&2
-  echo "  brew install ffmpeg   # macOS" >&2
-  exit 1
+if [[ ! -f "$INPUT" ]]; then
+  echo "[transcribe] error: file not found: $INPUT tag=usage-error" >&2
+  exit 64
 fi
+
+if ! watch_cli_audio_mode_check "transcribe"; then
+  echo "[transcribe] error: no usable audio backend tag=transcribe-other" >&2
+  exit 4
+fi
+
+for dep in ffmpeg ffprobe curl; do
+  if ! command -v "$dep" >/dev/null 2>&1; then
+    echo "[transcribe] error: $dep not found on PATH tag=missing-dep:$dep" >&2
+    exit 2
+  fi
+done
 
 # Always normalize to mono 16kHz mp3 — both Kyma and Groq accept it, and
 # this keeps payloads under 25MB even for ~30min sources.
@@ -40,17 +73,18 @@ HASH="$(echo -n "$INPUT" | shasum | cut -c1-10)"
 AUDIO="/tmp/transcribe_${HASH}.mp3"
 
 if [[ ! -s "$AUDIO" ]]; then
-  ffmpeg -hide_banner -loglevel error -y -i "$INPUT" \
-    -vn -ac 1 -ar 16000 -b:a 32k -f mp3 "$AUDIO" 2>&1 >&2 || {
-    echo "[transcribe] ffmpeg audio extraction failed" >&2
-    exit 1
-  }
+  if ! ffmpeg -hide_banner -loglevel error -y -i "$INPUT" \
+    -vn -ac 1 -ar 16000 -b:a 32k -f mp3 "$AUDIO" >&2 2>&1; then
+    echo "[transcribe] error: ffmpeg audio extraction failed tag=transcribe-other" >&2
+    exit 4
+  fi
 fi
 
-SIZE=$(stat -f%z "$AUDIO" 2>/dev/null || stat -c%s "$AUDIO")
+# POSIX size check: wc -c works on both macOS and Linux without a flag.
+SIZE="$(wc -c < "$AUDIO" | tr -d ' ')"
 if (( SIZE > 25 * 1024 * 1024 )); then
-  echo "[transcribe] audio is $((SIZE / 1024 / 1024))MB — exceeds 25MB cap. Trim source first." >&2
-  exit 1
+  echo "[transcribe] error: audio is $((SIZE / 1024 / 1024))MB — exceeds 25MB cap. Trim source first. tag=transcribe-other" >&2
+  exit 4
 fi
 
 # Silence guard: ASR models hallucinate on silent input ("Thank you" is a
@@ -62,8 +96,8 @@ MAX_DB="$(ffmpeg -i "$AUDIO" -af volumedetect -f null /dev/null 2>&1 | \
 if [[ -n "$MAX_DB" ]]; then
   IS_SILENT="$(awk -v v="$MAX_DB" 'BEGIN { print (v < -60.0) ? 1 : 0 }')"
   if [[ "$IS_SILENT" == "1" ]]; then
-    echo "[transcribe] audio is silent (max_volume ${MAX_DB} dB). No transcript." >&2
-    exit 0
+    echo "[transcribe] error: audio is silent (max_volume ${MAX_DB} dB) tag=transcribe-silent-audio" >&2
+    exit 4
   fi
 fi
 
@@ -77,11 +111,35 @@ case "$WATCH_AUDIO_MODE" in
       -F "response_format=text"
     )
     [[ -n "$LANG" ]] && ARGS+=(-F "language=$LANG")
-    curl -sS -X POST \
+    HTTP_CODE_FILE="$(mktemp)"
+    BODY="$(curl -sS -X POST \
+      -w "%{http_code}" \
+      -o /dev/stdout \
+      --max-time 300 \
       -H "Authorization: Bearer $KYMA_API_KEY" \
       -H "User-Agent: $WATCH_CLI_USER_AGENT" \
       "${ARGS[@]}" \
-      "$WATCH_KYMA_BASE/v1/audio/transcriptions"
+      "$WATCH_KYMA_BASE/v1/audio/transcriptions" 2>/dev/null)" || {
+      rm -f "$HTTP_CODE_FILE"
+      echo "[transcribe] error: Kyma request failed tag=transcribe-other" >&2
+      exit 4
+    }
+    rm -f "$HTTP_CODE_FILE"
+    # Last 3 chars of $BODY are the HTTP status from curl -w.
+    HTTP_CODE="${BODY: -3}"
+    TEXT="${BODY:0:${#BODY}-3}"
+    case "$HTTP_CODE" in
+      200) echo "$TEXT" ;;
+      402|429)
+        echo "[transcribe] error: Kyma quota or rate limit (HTTP $HTTP_CODE) tag=transcribe-quota" >&2
+        exit 4 ;;
+      408|504)
+        echo "[transcribe] error: Kyma timeout (HTTP $HTTP_CODE) tag=transcribe-timeout" >&2
+        exit 4 ;;
+      *)
+        echo "[transcribe] error: Kyma returned HTTP $HTTP_CODE: $TEXT tag=transcribe-other" >&2
+        exit 4 ;;
+    esac
     ;;
   direct|groq-only)
     ARGS=(
@@ -90,11 +148,30 @@ case "$WATCH_AUDIO_MODE" in
       -F "response_format=text"
     )
     [[ -n "$LANG" ]] && ARGS+=(-F "language=$LANG")
-    curl -sS -X POST \
+    BODY="$(curl -sS -X POST \
+      -w "%{http_code}" \
+      -o /dev/stdout \
+      --max-time 300 \
       -H "Authorization: Bearer $GROQ_API_KEY" \
       -H "User-Agent: $WATCH_CLI_USER_AGENT" \
       "${ARGS[@]}" \
-      https://api.groq.com/openai/v1/audio/transcriptions
+      https://api.groq.com/openai/v1/audio/transcriptions 2>/dev/null)" || {
+      echo "[transcribe] error: Groq request failed tag=transcribe-other" >&2
+      exit 4
+    }
+    HTTP_CODE="${BODY: -3}"
+    TEXT="${BODY:0:${#BODY}-3}"
+    case "$HTTP_CODE" in
+      200) echo "$TEXT" ;;
+      402|429)
+        echo "[transcribe] error: Groq quota or rate limit (HTTP $HTTP_CODE) tag=transcribe-quota" >&2
+        exit 4 ;;
+      408|504)
+        echo "[transcribe] error: Groq timeout (HTTP $HTTP_CODE) tag=transcribe-timeout" >&2
+        exit 4 ;;
+      *)
+        echo "[transcribe] error: Groq returned HTTP $HTTP_CODE: $TEXT tag=transcribe-other" >&2
+        exit 4 ;;
+    esac
     ;;
 esac
-echo

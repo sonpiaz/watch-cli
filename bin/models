@@ -7,8 +7,11 @@
 # Default: show audio models (transcribe + understand) — what watch-cli
 # actually uses.
 # --all: show every active SKU on Kyma (text + image + video + audio).
+#
+# Exit codes (see docs/exit-codes.md):
+#   0 success · 1 general · 2 missing-dep · 64 usage error
 
-set -euo pipefail
+set -uo pipefail
 
 SELF="${BASH_SOURCE[0]}"
 SELF_DIR="$(cd "$(dirname "$SELF")" && pwd)"
@@ -24,25 +27,35 @@ while [[ $# -gt 0 ]]; do
       sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
+    -V|--version)
+      echo "watch-cli v0.2.0"
+      exit 0
+      ;;
+    -*)
+      echo "[models] error: unknown flag: $1 tag=usage-error" >&2
+      exit 64
+      ;;
     *) shift ;;
   esac
 done
 
-if ! command -v jq >/dev/null 2>&1; then
-  echo "[models] jq required. brew install jq / apt install jq" >&2
-  exit 1
-fi
+for dep in jq curl; do
+  if ! command -v "$dep" >/dev/null 2>&1; then
+    echo "[models] error: $dep not found on PATH tag=missing-dep:$dep" >&2
+    exit 2
+  fi
+done
 
 # Endpoint is public (no auth needed) — lists registry without exposing
 # anything user-specific.
 BASE="${WATCH_KYMA_BASE:-https://api.kymaapi.com}"
 URL="$BASE/v1/models"
 
-RAW="$(curl -fsS -H "User-Agent: $WATCH_CLI_USER_AGENT" "$URL" 2>&1)" || {
-  echo "[models] could not reach Kyma at $BASE" >&2
+if ! RAW="$(curl -fsS -H "User-Agent: $WATCH_CLI_USER_AGENT" "$URL" 2>&1)"; then
+  echo "[models] error: could not reach Kyma at $BASE" >&2
   echo "[models] check your internet, or set WATCH_KYMA_BASE if self-hosting" >&2
   exit 1
-}
+fi
 
 # Default: only dedicated audio SKUs (pricing_mode=per-minute) — these are
 # what watch-cli scripts actually use. --all overrides to show every SKU.

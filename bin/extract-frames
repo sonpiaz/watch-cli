@@ -1,35 +1,65 @@
 #!/usr/bin/env bash
 # extract-frames <video> [count] [out-dir]
 # Pulls N evenly-spaced frames from a video as JPGs (quality 4 — small but
-# legible). Prints the output directory on stdout, one frame path per line.
+# legible). Prints one absolute frame path per line on stdout.
 #
 # Default count = 8 frames, which fits in a model's image context without
 # wasting tokens on near-duplicates and still tells the visual story of a
 # typical 30s–3min clip.
+#
+# Exit codes (see docs/exit-codes.md):
+#   0 success · 1 general · 2 missing-dep · 64 usage error
 
-set -euo pipefail
+set -uo pipefail
 
-VIDEO="${1:-}"
-COUNT="${2:-8}"
-OUTDIR_ARG="${3:-}"
+VIDEO=""
+COUNT="8"
+OUTDIR_ARG=""
 
-if [[ -z "$VIDEO" || ! -f "$VIDEO" ]]; then
-  echo "usage: extract-frames <video> [count] [out-dir]" >&2
-  echo "       (file must exist)" >&2
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help)
+      sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
+      exit 0
+      ;;
+    -V|--version)
+      echo "watch-cli v0.2.0"
+      exit 0
+      ;;
+    *)
+      if [[ -z "$VIDEO" ]]; then
+        VIDEO="$1"
+      elif [[ "$COUNT" == "8" ]]; then
+        COUNT="$1"
+      elif [[ -z "$OUTDIR_ARG" ]]; then
+        OUTDIR_ARG="$1"
+      fi
+      shift
+      ;;
+  esac
+done
+
+if [[ -z "$VIDEO" ]]; then
+  echo "usage: extract-frames <video> [count] [out-dir] tag=usage-error" >&2
+  exit 64
+fi
+
+if [[ ! -f "$VIDEO" ]]; then
+  echo "[extract-frames] error: file not found: $VIDEO tag=usage-error" >&2
   exit 64
 fi
 
 if ! [[ "$COUNT" =~ ^[0-9]+$ ]] || (( COUNT < 1 )); then
-  echo "[extract-frames] count must be positive integer, got: $COUNT" >&2
+  echo "[extract-frames] error: count must be positive integer, got: $COUNT tag=usage-error" >&2
   exit 64
 fi
 
-if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then
-  echo "[extract-frames] ffmpeg + ffprobe required. Install:" >&2
-  echo "  brew install ffmpeg   # macOS" >&2
-  echo "  apt install ffmpeg    # Linux" >&2
-  exit 1
-fi
+for dep in ffmpeg ffprobe python3; do
+  if ! command -v "$dep" >/dev/null 2>&1; then
+    echo "[extract-frames] error: $dep not found on PATH tag=missing-dep:$dep" >&2
+    exit 2
+  fi
+done
 
 # Output dir: explicit arg > /tmp/frames_<basename>_<hash>.
 if [[ -n "$OUTDIR_ARG" ]]; then
@@ -44,7 +74,7 @@ mkdir -p "$OUTDIR"
 # Total duration in seconds (float).
 DUR="$(ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 "$VIDEO" 2>/dev/null || echo 0)"
 if [[ "$DUR" == "0" || -z "$DUR" ]]; then
-  echo "[extract-frames] could not read duration from $VIDEO" >&2
+  echo "[extract-frames] error: could not read duration from $VIDEO" >&2
   exit 1
 fi
 
@@ -60,13 +90,21 @@ for i in range(1, n + 1):
 PY
 
 i=1
+emitted=0
 while IFS= read -r ts; do
   out="$OUTDIR/frame_$(printf "%02d" "$i").jpg"
-  ffmpeg -hide_banner -loglevel error -y -ss "$ts" -i "$VIDEO" -frames:v 1 -q:v 4 "$out" 2>&1 >&2 || true
-  if [[ -s "$out" ]]; then
-    echo "$out"
+  if ffmpeg -hide_banner -loglevel error -y -ss "$ts" -i "$VIDEO" -frames:v 1 -q:v 4 "$out" >&2 2>&1; then
+    if [[ -s "$out" ]]; then
+      echo "$out"
+      emitted=$((emitted + 1))
+    fi
   fi
   i=$((i + 1))
 done < "$OUTDIR/.timestamps"
 
 rm -f "$OUTDIR/.timestamps"
+
+if (( emitted == 0 )); then
+  echo "[extract-frames] error: no frames extracted from $VIDEO" >&2
+  exit 1
+fi

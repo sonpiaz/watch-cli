@@ -8,8 +8,11 @@
 #   - Kyma mode (KYMA_API_KEY set): POST api.kymaapi.com/v1/audio/understand
 #     Get a Kyma key at https://kymaapi.com.
 #   - Direct mode (GOOGLE_AI_KEY set): POST Gemini API directly (BYO).
+#
+# Exit codes (see docs/exit-codes.md):
+#   0 success · 1 general · 2 missing-dep · 4 transcribe fail · 64 usage error
 
-set -euo pipefail
+set -uo pipefail
 
 SELF="${BASH_SOURCE[0]}"
 SELF_DIR="$(cd "$(dirname "$SELF")" && pwd)"
@@ -17,39 +20,67 @@ ROOT_DIR="$(cd "$SELF_DIR/.." && pwd)"
 # shellcheck source=../lib/env.sh
 source "$ROOT_DIR/lib/env.sh"
 
-INPUT="${1:-}"
-QUESTION="${2:-}"
+INPUT=""
+QUESTION=""
 
-if [[ -z "$INPUT" || ! -f "$INPUT" || -z "$QUESTION" ]]; then
-  echo 'usage: audio-q <audio-or-video> "<question>"' >&2
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help)
+      sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'
+      exit 0
+      ;;
+    -V|--version)
+      echo "watch-cli v0.2.0"
+      exit 0
+      ;;
+    *)
+      if [[ -z "$INPUT" ]]; then
+        INPUT="$1"
+      elif [[ -z "$QUESTION" ]]; then
+        QUESTION="$1"
+      fi
+      shift
+      ;;
+  esac
+done
+
+if [[ -z "$INPUT" || -z "$QUESTION" ]]; then
+  echo 'usage: audio-q <audio-or-video> "<question>" tag=usage-error' >&2
   exit 64
 fi
 
-watch_cli_audio_mode_check "understand" || exit 1
+if [[ ! -f "$INPUT" ]]; then
+  echo "[audio-q] error: file not found: $INPUT tag=usage-error" >&2
+  exit 64
+fi
 
-if ! command -v ffmpeg >/dev/null 2>&1; then
-  echo "[audio-q] ffmpeg required. brew install ffmpeg / apt install ffmpeg" >&2
-  exit 1
+if ! watch_cli_audio_mode_check "understand"; then
+  echo "[audio-q] error: no usable audio backend tag=transcribe-other" >&2
+  exit 4
 fi
-if ! command -v jq >/dev/null 2>&1; then
-  echo "[audio-q] jq required. brew install jq / apt install jq" >&2
-  exit 1
-fi
+
+for dep in ffmpeg ffprobe jq curl base64; do
+  if ! command -v "$dep" >/dev/null 2>&1; then
+    echo "[audio-q] error: $dep not found on PATH tag=missing-dep:$dep" >&2
+    exit 2
+  fi
+done
 
 HASH="$(echo -n "$INPUT" | shasum | cut -c1-10)"
 AUDIO="/tmp/audioq_${HASH}.mp3"
 if [[ ! -s "$AUDIO" ]]; then
-  ffmpeg -hide_banner -loglevel error -y -i "$INPUT" \
-    -vn -ac 1 -ar 16000 -b:a 48k -f mp3 "$AUDIO" 2>&1 >&2 || {
-    echo "[audio-q] ffmpeg audio extraction failed" >&2
-    exit 1
-  }
+  if ! ffmpeg -hide_banner -loglevel error -y -i "$INPUT" \
+    -vn -ac 1 -ar 16000 -b:a 48k -f mp3 "$AUDIO" >&2 2>&1; then
+    echo "[audio-q] error: ffmpeg audio extraction failed tag=transcribe-other" >&2
+    exit 4
+  fi
 fi
 
-SIZE=$(stat -f%z "$AUDIO" 2>/dev/null || stat -c%s "$AUDIO")
+# POSIX size check: wc -c works on both macOS and Linux without a flag.
+SIZE="$(wc -c < "$AUDIO" | tr -d ' ')"
 if (( SIZE > 19 * 1024 * 1024 )); then
-  echo "[audio-q] audio is $((SIZE / 1024 / 1024))MB — exceeds 20MB inline cap. Trim source first." >&2
-  exit 1
+  echo "[audio-q] error: audio is $((SIZE / 1024 / 1024))MB — exceeds 20MB inline cap. Trim source first. tag=transcribe-other" >&2
+  exit 4
 fi
 
 # Silence guard: multimodal LLMs hallucinate plausible-sounding scene
@@ -60,9 +91,8 @@ MAX_DB="$(ffmpeg -i "$AUDIO" -af volumedetect -f null /dev/null 2>&1 | \
 if [[ -n "$MAX_DB" ]]; then
   IS_SILENT="$(awk -v v="$MAX_DB" 'BEGIN { print (v < -60.0) ? 1 : 0 }')"
   if [[ "$IS_SILENT" == "1" ]]; then
-    echo "[audio-q] audio is silent (max_volume ${MAX_DB} dB). The video has no audible content to analyze." >&2
-    echo "(silent audio: ${MAX_DB} dB)"
-    exit 0
+    echo "[audio-q] error: audio is silent (max_volume ${MAX_DB} dB) tag=transcribe-silent-audio" >&2
+    exit 4
   fi
 fi
 
@@ -74,27 +104,47 @@ case "$WATCH_AUDIO_MODE" in
   kyma)
     # Use the "audio-understand" alias rather than a concrete SKU.
     # Kyma can swap the underlying model without breaking watch-cli.
-    RESP="$(curl -sS -X POST \
+    BODY="$(curl -sS -X POST \
+      -w "%{http_code}" \
+      -o /dev/stdout \
+      --max-time 300 \
       -H "Authorization: Bearer $KYMA_API_KEY" \
       -H "User-Agent: $WATCH_CLI_USER_AGENT" \
       -F "file=@$AUDIO;type=audio/mpeg" \
       -F "model=audio-understand" \
       -F "question=$QUESTION" \
       -F "duration_sec=$DUR_SEC" \
-      "$WATCH_KYMA_BASE/v1/audio/understand")"
-
-    TEXT="$(echo "$RESP" | jq -r '.answer // empty')"
-    if [[ -z "$TEXT" ]]; then
-      ERR="$(echo "$RESP" | jq -r '.error.message // "unknown error"')"
-      echo "[audio-q] Kyma call failed: $ERR" >&2
-      exit 1
-    fi
-    echo "$TEXT"
+      "$WATCH_KYMA_BASE/v1/audio/understand" 2>/dev/null)" || {
+      echo "[audio-q] error: Kyma request failed tag=transcribe-other" >&2
+      exit 4
+    }
+    HTTP_CODE="${BODY: -3}"
+    RESP="${BODY:0:${#BODY}-3}"
+    case "$HTTP_CODE" in
+      200)
+        TEXT="$(echo "$RESP" | jq -r '.answer // empty')"
+        if [[ -z "$TEXT" ]]; then
+          ERR="$(echo "$RESP" | jq -r '.error.message // "unknown error"')"
+          echo "[audio-q] error: Kyma call returned empty answer: $ERR tag=transcribe-other" >&2
+          exit 4
+        fi
+        echo "$TEXT"
+        ;;
+      402|429)
+        echo "[audio-q] error: Kyma quota or rate limit (HTTP $HTTP_CODE) tag=transcribe-quota" >&2
+        exit 4 ;;
+      408|504)
+        echo "[audio-q] error: Kyma timeout (HTTP $HTTP_CODE) tag=transcribe-timeout" >&2
+        exit 4 ;;
+      *)
+        echo "[audio-q] error: Kyma returned HTTP $HTTP_CODE tag=transcribe-other" >&2
+        exit 4 ;;
+    esac
     ;;
 
   direct)
     B64="$(base64 < "$AUDIO" | tr -d '\n')"
-    BODY="$(jq -n \
+    REQ_BODY="$(jq -n \
       --arg q "$QUESTION" \
       --arg data "$B64" \
       '{
@@ -107,19 +157,39 @@ case "$WATCH_AUDIO_MODE" in
         generationConfig: { temperature: 0.3, maxOutputTokens: 2048 }
       }')"
 
-    RESP="$(curl -sS -X POST \
+    BODY="$(curl -sS -X POST \
+      -w "%{http_code}" \
+      -o /dev/stdout \
+      --max-time 300 \
       -H "Content-Type: application/json" \
       -H "x-goog-api-key: $GOOGLE_AI_KEY" \
       -H "User-Agent: $WATCH_CLI_USER_AGENT" \
-      -d "$BODY" \
-      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent")"
-
-    TEXT="$(echo "$RESP" | jq -r '.candidates[0].content.parts[0].text // empty')"
-    if [[ -z "$TEXT" ]]; then
-      ERR="$(echo "$RESP" | jq -r '.error.message // "unknown error"')"
-      echo "[audio-q] Gemini call failed: $ERR" >&2
-      exit 1
-    fi
-    echo "$TEXT"
+      -d "$REQ_BODY" \
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent" 2>/dev/null)" || {
+      echo "[audio-q] error: Gemini request failed tag=transcribe-other" >&2
+      exit 4
+    }
+    HTTP_CODE="${BODY: -3}"
+    RESP="${BODY:0:${#BODY}-3}"
+    case "$HTTP_CODE" in
+      200)
+        TEXT="$(echo "$RESP" | jq -r '.candidates[0].content.parts[0].text // empty')"
+        if [[ -z "$TEXT" ]]; then
+          ERR="$(echo "$RESP" | jq -r '.error.message // "unknown error"')"
+          echo "[audio-q] error: Gemini call returned empty answer: $ERR tag=transcribe-other" >&2
+          exit 4
+        fi
+        echo "$TEXT"
+        ;;
+      402|429)
+        echo "[audio-q] error: Gemini quota or rate limit (HTTP $HTTP_CODE) tag=transcribe-quota" >&2
+        exit 4 ;;
+      408|504)
+        echo "[audio-q] error: Gemini timeout (HTTP $HTTP_CODE) tag=transcribe-timeout" >&2
+        exit 4 ;;
+      *)
+        echo "[audio-q] error: Gemini returned HTTP $HTTP_CODE tag=transcribe-other" >&2
+        exit 4 ;;
+    esac
     ;;
 esac

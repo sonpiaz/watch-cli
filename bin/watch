@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# watch <url> [frame-count] [--cookies <file>]
+# watch <url> [frame-count] [--cookies <file>] [--format text|json]
 # One-shot orchestrator: download a video, extract evenly-spaced frames,
-# transcribe the audio. Prints a single block easy for an AI agent to
-# consume:
+# transcribe the audio. Prints a single structured block easy for an AI
+# agent to consume.
 #
+# Text format (default) — see docs/output-schema.md:
+#   WATCH_OUTPUT_VERSION: 1
 #   VIDEO: <path>
 #   DURATION: <seconds>
 #   FRAMES:
@@ -12,18 +14,29 @@
 #     …
 #   TRANSCRIPT:
 #     <full text>
+#   EXIT: <code>
 #
-# After running, the calling agent reads each FRAMES path (image tool
-# understands JPG) and reads the TRANSCRIPT inline. Combined = enough
-# context to "watch" the video.
+# JSON format (--format json) — single line:
+#   {"version":1,"video_path":"…","duration_sec":…,"frame_paths":[…],
+#    "transcript":"…"|null,"exit_code":…,"transcribe_cost_usd":…}
+#
+# Exit codes: see docs/exit-codes.md.
+#   0 success · 1 general · 2 missing-dep · 3 download fail
+#   4 transcribe fail (partial: frames present, transcript=null)
+#   64 usage error
 #
 # Default frame count = 8.
 
-set -euo pipefail
+# Note: no `set -e`. We inspect downstream exit codes ourselves so partial
+# success (frames OK, transcribe failed → exit 4) still emits a block.
+set -uo pipefail
+
+VERSION="watch-cli v0.2.0"
 
 URL=""
 COUNT="8"
 COOKIES_ARG=""
+FORMAT="text"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -35,8 +48,20 @@ while [[ $# -gt 0 ]]; do
       COOKIES_ARG="--cookies ${1#*=}"
       shift
       ;;
+    --format)
+      FORMAT="${2:-}"
+      shift 2
+      ;;
+    --format=*)
+      FORMAT="${1#*=}"
+      shift
+      ;;
     -h|--help)
-      sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '2,31p' "$0" | sed 's/^# \{0,1\}//'
+      exit 0
+      ;;
+    -V|--version)
+      echo "$VERSION"
       exit 0
       ;;
     *)
@@ -51,33 +76,98 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$URL" ]]; then
-  echo "usage: watch <url> [frame-count] [--cookies <file>]" >&2
+  echo "usage: watch <url> [frame-count] [--cookies <file>] [--format text|json] tag=usage-error" >&2
+  exit 64
+fi
+
+if [[ "$FORMAT" != "text" && "$FORMAT" != "json" ]]; then
+  echo "[watch] error: --format must be 'text' or 'json' (got '$FORMAT') tag=usage-error" >&2
   exit 64
 fi
 
 SELF="${BASH_SOURCE[0]}"
 SELF_DIR="$(cd "$(dirname "$SELF")" && pwd)"
 
+# Dependency check up-front so we exit 2, not 1, when a binary is missing.
+for dep in yt-dlp ffmpeg ffprobe jq curl python3; do
+  if ! command -v "$dep" >/dev/null 2>&1; then
+    echo "[watch] error: $dep not found on PATH tag=missing-dep:$dep" >&2
+    exit 2
+  fi
+done
+
 echo "[watch] downloading $URL …" >&2
 # shellcheck disable=SC2086
 VIDEO="$("$SELF_DIR/dl-video" "$URL" $COOKIES_ARG)"
+DL_RC=$?
+if [[ $DL_RC -ne 0 ]]; then
+  # dl-video already emitted a stderr line with tag=download-* and exited 3.
+  # Surface its exit code unchanged.
+  exit $DL_RC
+fi
 echo "[watch] video: $VIDEO" >&2
 
 DUR="$(ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 "$VIDEO" 2>/dev/null || echo 0)"
 DUR_INT="${DUR%.*}"
+[[ -z "$DUR_INT" ]] && DUR_INT=0
 
 echo "[watch] extracting $COUNT frames …" >&2
 FRAMES="$("$SELF_DIR/extract-frames" "$VIDEO" "$COUNT")"
+EF_RC=$?
+if [[ $EF_RC -ne 0 ]]; then
+  echo "[watch] error: extract-frames failed (rc=$EF_RC)" >&2
+  exit 1
+fi
 
 echo "[watch] transcribing audio …" >&2
+# Capture transcribe output and exit code separately. A non-zero exit
+# means partial success — emit the block with transcript=null and exit 4.
 TRANSCRIPT="$("$SELF_DIR/transcribe" "$VIDEO")"
+TR_RC=$?
 
-# Final block — single stdout payload for downstream consumers.
-echo "VIDEO: $VIDEO"
-echo "DURATION: $DUR_INT"
-echo "FRAMES:"
-while IFS= read -r f; do
-  echo "  $f"
-done <<< "$FRAMES"
-echo "TRANSCRIPT:"
-echo "$TRANSCRIPT" | sed 's/^/  /'
+EXIT_CODE=0
+if [[ $TR_RC -ne 0 ]]; then
+  EXIT_CODE=4
+  TRANSCRIPT=""
+fi
+
+# ── Emit the contract block ──
+if [[ "$FORMAT" == "json" ]]; then
+  # Build frame_paths array from newline-separated FRAMES var.
+  # Filter out empty lines so a trailing newline doesn't yield [""].
+  FRAME_JSON="$(printf '%s\n' "$FRAMES" | jq -R . | jq -cs 'map(select(. != ""))')"
+
+  if [[ $TR_RC -ne 0 ]]; then
+    jq -cn \
+      --argjson frames "$FRAME_JSON" \
+      --arg video "$VIDEO" \
+      --argjson dur "$DUR_INT" \
+      --argjson rc "$EXIT_CODE" \
+      '{version:1, video_path:$video, duration_sec:$dur, frame_paths:$frames, transcript:null, exit_code:$rc}'
+  else
+    jq -cn \
+      --argjson frames "$FRAME_JSON" \
+      --arg video "$VIDEO" \
+      --argjson dur "$DUR_INT" \
+      --arg transcript "$TRANSCRIPT" \
+      --argjson rc "$EXIT_CODE" \
+      '{version:1, video_path:$video, duration_sec:$dur, frame_paths:$frames, transcript:$transcript, exit_code:$rc}'
+  fi
+else
+  echo "WATCH_OUTPUT_VERSION: 1"
+  echo "VIDEO: $VIDEO"
+  echo "DURATION: $DUR_INT"
+  echo "FRAMES:"
+  while IFS= read -r f; do
+    [[ -n "$f" ]] && echo "  $f"
+  done <<< "$FRAMES"
+  echo "TRANSCRIPT:"
+  if [[ $TR_RC -ne 0 ]]; then
+    echo "  null"
+  else
+    echo "$TRANSCRIPT" | sed 's/^/  /'
+  fi
+  echo "EXIT: $EXIT_CODE"
+fi
+
+exit $EXIT_CODE

@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  smoke:
+    name: smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install deps (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          brew update
+          brew install yt-dlp ffmpeg jq
+
+      - name: Install deps (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y yt-dlp ffmpeg jq curl python3
+
+      - name: Verify required binaries
+        run: |
+          for b in yt-dlp ffmpeg ffprobe jq curl python3 bash; do
+            command -v "$b" >/dev/null 2>&1 || { echo "missing $b"; exit 1; }
+          done
+
+      - name: Bash syntax check
+        run: |
+          bash -n bin/watch bin/dl-video bin/extract-frames bin/transcribe bin/audio-q bin/models
+
+      - name: Make bins executable
+        run: chmod +x bin/*
+
+      - name: Install symlinks
+        run: |
+          # Run install.sh in an isolated dir so it doesn't pull a fresh clone.
+          # We just want the symlink step to validate, but install.sh is geared
+          # to clone-and-link from GitHub. Skip it and replicate the symlink
+          # step inline against the checked-out tree.
+          mkdir -p "$HOME/.local/bin"
+          for bin in watch dl-video extract-frames transcribe audio-q models; do
+            ln -sf "$GITHUB_WORKSPACE/bin/$bin" "$HOME/.local/bin/$bin"
+          done
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Smoke — watch --help
+        run: watch --help
+
+      - name: Smoke — transcribe --help
+        run: transcribe --help
+
+      - name: Smoke — extract-frames --help
+        run: extract-frames --help
+
+      - name: Smoke — dl-video --help
+        run: dl-video --help
+
+      - name: Smoke — audio-q --help
+        run: audio-q --help
+
+      - name: Smoke — models --help
+        run: models --help
+
+      - name: Negative — watch with no args must exit 64
+        run: |
+          set +e
+          watch
+          rc=$?
+          set -e
+          if [[ $rc -ne 64 ]]; then
+            echo "expected exit 64 from 'watch' with no args, got $rc" >&2
+            exit 1
+          fi
+          echo "OK: rc=$rc"
+
+      - name: Version — watch --version must exit 0 and print a version string
+        run: |
+          out="$(watch --version)"
+          echo "$out"
+          [[ "$out" =~ watch-cli ]] || { echo "expected 'watch-cli' in version output" >&2; exit 1; }
+
+      - name: Output schema test
+        run: bash tests/test-output-schema.sh

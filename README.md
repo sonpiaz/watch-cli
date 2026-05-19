@@ -1,5 +1,7 @@
 # watch-cli
 
+![CI](https://github.com/sonpiaz/watch-cli/actions/workflows/ci.yml/badge.svg)
+
 **Watch any social video → get an architecture diagram, working component, runnable notebook, or step-by-step cheat sheet — automatically.**
 
 Eyes and ears for your AI agent. watch-cli composes `yt-dlp` + `ffmpeg` + a Whisper-class ASR into a single command that hands an agent the raw materials to "watch" any video: VIDEO + FRAMES + TRANSCRIPT, ready for an LLM to read frames as images and transcript as text.

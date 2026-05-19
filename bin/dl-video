@@ -10,8 +10,11 @@
 #      Override via WATCH_BROWSER=chrome|firefox|safari|edge|brave|chromium.
 #   3. Manual cookies file via --cookies <file> (Netscape format).
 #   4. Graceful error with guidance — no silent failure.
+#
+# Exit codes (see docs/exit-codes.md):
+#   0 success · 2 missing-dep · 3 download fail · 64 usage error · 1 other
 
-set -euo pipefail
+set -uo pipefail
 
 URL=""
 OUTDIR="/tmp/dl-video"
@@ -28,7 +31,11 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     -h|--help)
-      sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'
+      exit 0
+      ;;
+    -V|--version)
+      echo "watch-cli v0.2.0"
       exit 0
       ;;
     *)
@@ -43,15 +50,13 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$URL" ]]; then
-  echo "usage: dl-video <url> [out-dir] [--cookies <file>]" >&2
+  echo "usage: dl-video <url> [out-dir] [--cookies <file>] tag=usage-error" >&2
   exit 64
 fi
 
 if ! command -v yt-dlp >/dev/null 2>&1; then
-  echo "[dl-video] yt-dlp not found. Install:" >&2
-  echo "  brew install yt-dlp     # macOS" >&2
-  echo "  pipx install yt-dlp     # Linux/Windows" >&2
-  exit 1
+  echo "[dl-video] error: yt-dlp not found on PATH. Install via 'brew install yt-dlp' or 'pipx install yt-dlp'. tag=missing-dep:yt-dlp" >&2
+  exit 2
 fi
 
 mkdir -p "$OUTDIR"
@@ -81,6 +86,24 @@ run_dl() {
     "$URL" >&2
 }
 
+# Classify yt-dlp's last stderr log into one of the documented tags.
+# Falls through to download-other when nothing matches.
+classify_failure() {
+  local log="/tmp/dl-video.last.log"
+  [[ -f "$log" ]] || { echo "download-other"; return; }
+  local body
+  body="$(tr '[:upper:]' '[:lower:]' < "$log")"
+  if grep -qE 'sign in|login required|authentication|private|members[- ]only|http error 401|http error 403' <<< "$body"; then
+    echo "download-auth"
+  elif grep -qE 'geo[- ]restrict|not available in your country|region' <<< "$body"; then
+    echo "download-region"
+  elif grep -qE 'timed out|timeout|connection reset|temporary failure|network is unreachable|name or service not known|getaddrinfo|tls handshake' <<< "$body"; then
+    echo "download-network"
+  else
+    echo "download-other"
+  fi
+}
+
 # Tier 1: anonymous. Public videos succeed here.
 if run_dl 2>/tmp/dl-video.last.log; then
   if [[ -s "$OUT" ]]; then
@@ -93,17 +116,18 @@ fi
 if [[ -n "$COOKIES_FILE" ]]; then
   echo "[dl-video] anonymous fetch failed, retrying with $COOKIES_FILE…" >&2
   if [[ ! -f "$COOKIES_FILE" ]]; then
-    echo "[dl-video] cookies file not found: $COOKIES_FILE" >&2
-    exit 1
+    echo "[dl-video] error: cookies file not found: $COOKIES_FILE tag=usage-error" >&2
+    exit 64
   fi
-  if run_dl --cookies "$COOKIES_FILE"; then
+  if run_dl --cookies "$COOKIES_FILE" 2>/tmp/dl-video.last.log; then
     if [[ -s "$OUT" ]]; then
       echo "$OUT"
       exit 0
     fi
   fi
-  echo "[dl-video] failed even with provided cookies" >&2
-  exit 1
+  TAG="$(classify_failure)"
+  echo "[dl-video] error: download failed for $URL even with provided cookies tag=$TAG" >&2
+  exit 3
 fi
 
 # Tier 2: auto-detect signed-in browser.
@@ -126,9 +150,12 @@ for BROWSER in "${BROWSERS[@]}"; do
   fi
 done
 
-# Tier 4: graceful error with actionable guidance.
-cat >&2 <<'ERR'
-[dl-video] Could not download — this video appears to require authentication.
+# Tier 4: classify the final failure and emit a tag-tagged stderr line.
+TAG="$(classify_failure)"
+case "$TAG" in
+  download-auth)
+    cat >&2 <<ERR
+[dl-video] error: download failed for $URL tag=download-auth — sign in to the platform in your browser and re-run, or pass --cookies <file>
 
 Three ways to fix:
   1. Sign in to the platform in Chrome (or Firefox/Safari/Edge), then re-run.
@@ -141,4 +168,15 @@ Three ways to fix:
   3. Try a public URL — most YouTube, TikTok, and Reddit videos
      work without cookies.
 ERR
-exit 1
+    ;;
+  download-region)
+    echo "[dl-video] error: download failed for $URL tag=download-region — video is geo-restricted, try a VPN in the supported region" >&2
+    ;;
+  download-network)
+    echo "[dl-video] error: download failed for $URL tag=download-network — transient network failure, wait and retry" >&2
+    ;;
+  *)
+    echo "[dl-video] error: download failed for $URL tag=download-other — surface yt-dlp stderr above for details" >&2
+    ;;
+esac
+exit 3
