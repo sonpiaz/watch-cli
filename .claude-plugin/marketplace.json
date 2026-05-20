@@ -1,0 +1,22 @@
+{
+  "name": "watch-cli",
+  "owner": {
+    "name": "Son Piaz",
+    "email": "sonxpiaz@gmail.com"
+  },
+  "metadata": {
+    "description": "watch-cli skill marketplace — Claude Code users can /plugin install watch-cli.",
+    "version": "0.3.0"
+  },
+  "plugins": [
+    {
+      "name": "watch-cli",
+      "description": "Compose yt-dlp + ffmpeg + Whisper into a single command that hands an AI agent the raw materials to watch any social video — VIDEO + FRAMES + TRANSCRIPT, ready for an LLM to read frames as images and transcript as text.",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./skills/watch-cli"
+      ]
+    }
+  ]
+}

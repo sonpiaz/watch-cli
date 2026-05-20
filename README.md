@@ -93,7 +93,7 @@ signup is enough to run the full pipeline end-to-end before you spend a cent.
 ## Install
 
 ```bash
-# macOS — Homebrew (recommended once v0.3.0 ships)
+# macOS — Homebrew (recommended)
 brew tap sonpiaz/tap
 brew install watch-cli
 
@@ -101,9 +101,19 @@ brew install watch-cli
 curl -fsSL https://github.com/sonpiaz/watch-cli/releases/latest/download/install.sh | bash
 ```
 
-> The Homebrew path requires the v0.3.0 release to be cut first.
-> Until then, use the curl one-liner above — it auto-falls-back to
-> `git clone` of `main` when no published release exists yet.
+> The curl one-liner auto-falls back to `git clone` of `main` if no
+> published release tarball is reachable.
+
+### Claude Code (skill marketplace)
+
+If you use Claude Code, install watch-cli as a skill:
+
+```
+/plugin marketplace add sonpiaz/watch-cli
+/plugin install watch-cli@watch-cli
+```
+
+The agent then picks up `watch <url>` as a first-class command.
 
 Pin a specific version:
 
