@@ -32,6 +32,8 @@ Reach for `watch` whenever the user gives you a video URL and wants you to do so
 
 Supported platforms: YouTube, X / Twitter, LinkedIn, TikTok, Vimeo, Reddit, Facebook. Login-walled sources fall back to the user's signed-in browser cookies automatically.
 
+If the user also provides [Xquik REST API](https://docs.xquik.com/api-reference/overview) or [MCP](https://docs.xquik.com/mcp/overview) output for an X post, treat it as read-only metadata context: post text, author, timestamp, source URL, media notes, and public metrics. It does not replace `watch`; still run `watch` when the user asks to inspect video frames, audio, or transcript, leave missing metadata unknown, and never place credentials in prompts or output.
+
 ## What you get back
 
 The `watch` output gives you the raw materials to map to five concrete artifacts. Match the user's intent to one of them.
@@ -72,3 +74,6 @@ Default frame count is 8. For a fast-cut or dense UI demo, double it. For a mult
 - Do not hard-fail on every non-zero exit. `exit 4` is recoverable partial success — frames populated, transcript `null`. Branch on `exit_code` before parsing.
 - Do not surface API keys or environment variable names in chat. `KYMA_API_KEY` setup lives in the README.
 - Do not embed the locked pitch into a longer marketing paragraph. The description line above is the source of truth; reuse it verbatim where the host shows skill metadata.
+
+Xquik is an independent third-party service. Not affiliated with X Corp.
+"Twitter" and "X" are trademarks of X Corp.

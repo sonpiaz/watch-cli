@@ -111,7 +111,25 @@ else
   fail "watch --pipe with invalid URL expected 1-line JSON error + non-zero; got rc=$PIPE_BAD_RC lines=$PIPE_BAD_LINES out='$PIPE_BAD_OUT'"
 fi
 
-# 10. Forced local mode with no whisper-cli on PATH → exit 2, tag=missing-dep.
+# 10. A valid pipe item with a missing dependency emits one JSON error and exits 2.
+MISSING_DEP_PATH="$(mktemp -d)"
+for dep in bash ffmpeg ffprobe jq curl python3 dirname readlink sed; do
+  dep_path="$(command -v "$dep")"
+  ln -s "$dep_path" "$MISSING_DEP_PATH/$dep"
+done
+PIPE_DEP_OUT="$(printf 'https://example.invalid/video\n' | PATH="$MISSING_DEP_PATH" "$WATCH" --pipe 2>/dev/null)"
+PIPE_DEP_RC=$?
+PIPE_DEP_LINES="$(printf '%s' "$PIPE_DEP_OUT" | grep -c .)"
+rm -rf "$MISSING_DEP_PATH"
+if [[ $PIPE_DEP_RC -eq 2 ]] \
+   && [[ "$PIPE_DEP_LINES" == "1" ]] \
+   && echo "$PIPE_DEP_OUT" | jq -e '.version == 1 and .exit_code == 2 and .error == "missing-dep:yt-dlp"' >/dev/null 2>&1; then
+  pass "watch --pipe with missing yt-dlp emits one v1 error object and exits 2"
+else
+  fail "watch --pipe missing-dep expected 1-line JSON error + exit 2; got rc=$PIPE_DEP_RC lines=$PIPE_DEP_LINES out='$PIPE_DEP_OUT'"
+fi
+
+# 11. Forced local mode with no whisper-cli on PATH → exit 2, tag=missing-dep.
 # Use a subshell with a PATH that excludes whisper-cli, set WATCH_AUDIO_MODE=local,
 # and verify the contract from docs/offline-mode.md.
 TR_BIN="$REPO_ROOT/bin/transcribe"

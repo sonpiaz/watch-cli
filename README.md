@@ -280,13 +280,13 @@ to your agent.
 
 ### Use as a Claude Code skill
 
-Drop [`skills/watch-cli/`](skills/watch-cli/) into your
-`~/.claude/skills/` folder and the agent will pick up `/watch <url>`
-as a first-class command, including the prompt library above.
+Copy the portable [`SKILL.md`](SKILL.md) into a `watch-cli` skill directory
+and the agent will pick up `/watch <url>` as a first-class command, including
+the prompt library above.
 
 ```bash
-mkdir -p ~/.claude/skills
-cp -r skills/watch-cli ~/.claude/skills/
+mkdir -p ~/.claude/skills/watch-cli
+cp SKILL.md ~/.claude/skills/watch-cli/SKILL.md
 ```
 
 ---
