@@ -132,13 +132,23 @@ if [[ "$FORMAT" != "text" && "$FORMAT" != "json" ]]; then
   exit 64
 fi
 
-# Dependency check up-front so we exit 2, not 1, when a binary is missing.
-for dep in yt-dlp ffmpeg ffprobe jq curl python3; do
-  if ! command -v "$dep" >/dev/null 2>&1; then
-    echo "[watch] error: $dep not found on PATH tag=missing-dep:$dep" >&2
-    exit 2
-  fi
-done
+MISSING_DEP=""
+check_dependencies() {
+  local dep
+  for dep in yt-dlp ffmpeg ffprobe jq curl python3; do
+    if ! command -v "$dep" >/dev/null 2>&1; then
+      MISSING_DEP="$dep"
+      echo "[watch] error: $dep not found on PATH tag=missing-dep:$dep" >&2
+      return 2
+    fi
+  done
+}
+
+if [[ $PIPE -eq 0 ]]; then
+  check_dependencies
+  DEPENDENCY_RC=$?
+  [[ $DEPENDENCY_RC -ne 0 ]] && exit "$DEPENDENCY_RC"
+fi
 
 # ── Per-URL pipeline ──────────────────────────────────────────────
 # Runs the download → frames → transcribe sequence for one URL.
@@ -333,6 +343,8 @@ if [[ $PIPE -eq 1 ]]; then
   # Track the worst-case exit code so the pipeline as a whole reports
   # a non-zero exit when any URL failed. Successful runs return 0.
   PIPE_WORST=0
+  PIPE_DEPENDENCIES_CHECKED=0
+  PIPE_DEPENDENCIES_RC=0
   while IFS= read -r LINE || [[ -n "$LINE" ]]; do
     # Skip blank lines / comments.
     LINE="${LINE%$'\r'}"
@@ -348,8 +360,19 @@ if [[ $PIPE -eq 1 ]]; then
       (( PIPE_WORST < 64 )) && PIPE_WORST=64
       continue
     fi
-    if ! process_url "$LINE" "$COUNT" "$FORMAT" "$COOKIES_ARG" 1; then
-      RC=$?
+    if [[ $PIPE_DEPENDENCIES_CHECKED -eq 0 ]]; then
+      check_dependencies
+      PIPE_DEPENDENCIES_RC=$?
+      PIPE_DEPENDENCIES_CHECKED=1
+    fi
+    if [[ $PIPE_DEPENDENCIES_RC -ne 0 ]]; then
+      _emit_pipe_error "$LINE" "$PIPE_DEPENDENCIES_RC" "missing-dep:$MISSING_DEP"
+      (( PIPE_WORST < PIPE_DEPENDENCIES_RC )) && PIPE_WORST=$PIPE_DEPENDENCIES_RC
+      continue
+    fi
+    process_url "$LINE" "$COUNT" "$FORMAT" "$COOKIES_ARG" 1
+    RC=$?
+    if [[ $RC -ne 0 ]]; then
       (( PIPE_WORST < RC )) && PIPE_WORST=$RC
     fi
   done
