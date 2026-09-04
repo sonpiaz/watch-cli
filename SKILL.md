@@ -9,12 +9,18 @@ metadata:
       bins:
         - watch
     install:
-      - id: curl-install
-        kind: shell
-        command: "curl -fsSL https://raw.githubusercontent.com/sonpiaz/watch-cli/main/install.sh | bash"
+      - id: brew
+        kind: brew
+        formula: sonpiaz/tap/watch-cli
         bins:
           - watch
-        label: "Install watch-cli (curl)"
+        label: "Install watch-cli (Homebrew)"
+      - id: release-0.3.3
+        kind: shell
+        command: "curl -fsSL https://github.com/sonpiaz/watch-cli/releases/download/v0.3.3/install.sh | WATCH_CLI_VERSION=0.3.3 bash"
+        bins:
+          - watch
+        label: "Install watch-cli v0.3.3 (pinned release, SHA256-verified tarball)"
 ---
 
 Watch any social video → get an architecture diagram, working component, runnable notebook, or step-by-step cheat sheet — automatically.
@@ -30,7 +36,7 @@ Reach for `watch` whenever the user gives you a video URL and wants you to do so
 - The user asks to "implement", "clone", "build", or "replicate" what is on screen in a video.
 - The user asks to "extract architecture from", "diagram", or "turn this paper talk into code" at a video URL.
 
-Supported platforms: YouTube, X / Twitter, LinkedIn, TikTok, Vimeo, Reddit, Facebook. Login-walled sources fall back to the user's signed-in browser cookies automatically.
+Supported platforms: YouTube, X / Twitter, LinkedIn, TikTok, Vimeo, Reddit, Facebook. Every URL is fetched anonymously first. Only when the platform answers with a login wall does `watch` retry with the cookies of a browser the user is already signed in to on this machine (Chrome, Firefox, Safari, Edge, Brave, Chromium, in that order); `WATCH_BROWSER=none` turns that step off and `--cookies <file>` replaces it with an exported cookie file. Cookies are read from the local browser profile by yt-dlp and sent only to the platform that issued them; watch-cli never stores or uploads them.
 
 ## What you get back
 
@@ -88,5 +94,12 @@ Pass `--no-cache` only when the source itself has changed. A failed transcriptio
 - Do not hard-fail on every non-zero exit. `exit 4` is recoverable partial success — frames populated, transcript `null`. Branch on `exit_code` before parsing.
 - Do not surface API keys or environment variable names in chat. `KYMA_API_KEY` setup lives in the README.
 - Do not embed the locked pitch into a longer marketing paragraph. The description line above is the source of truth; reuse it verbatim where the host shows skill metadata.
+
+## What leaves the machine
+
+- The video download goes to the platform hosting it, through yt-dlp.
+- The extracted audio track is uploaded to Kyma API for transcription; frames and the video file stay on disk under `~/.watch-cli/archive`. With `--with-local` installed, transcription runs offline through whisper.cpp instead and nothing is uploaded.
+- Browser cookies, when used, go only to the platform that set them (see above).
+- Installation is pinned: the release installer downloads a tagged tarball and verifies its SHA256 against the checksum published on the same GitHub Release. Homebrew does the same through the formula's `sha256`.
 
 Transcription runs through Kyma API. Get a key at https://kymaapi.com/?src=skill:watch and set `KYMA_API_KEY`; a one-hour video costs about $0.05.

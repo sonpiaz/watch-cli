@@ -118,8 +118,8 @@ The agent then picks up `watch <url>` as a first-class command.
 Pin a specific version:
 
 ```bash
-WATCH_CLI_VERSION=0.3.0 curl -fsSL \
-  https://github.com/sonpiaz/watch-cli/releases/download/v0.3.0/install.sh | bash
+curl -fsSL https://github.com/sonpiaz/watch-cli/releases/download/v0.3.3/install.sh \
+  | WATCH_CLI_VERSION=0.3.3 bash
 ```
 
 Or from a clone:
@@ -257,9 +257,11 @@ to see what's behind the alias today.
 Most YouTube / TikTok / Reddit / Vimeo / public X work without setup.
 LinkedIn, private X posts, and Facebook need a session.
 
-watch-cli auto-detects cookies from any signed-in browser
+watch-cli tries every URL anonymously first. On a login wall it
+retries with cookies from a signed-in browser on this machine
 (Chrome → Firefox → Safari → Edge → Brave → Chromium). Just sign in
-normally and re-run.
+normally and re-run. `WATCH_BROWSER=none` turns the browser step off;
+cookies are read locally by yt-dlp and never stored or uploaded.
 
 For servers / CI without browsers, pass a manual cookies file:
 

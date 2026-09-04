@@ -149,15 +149,20 @@ fi
 
 # Tier 2: auto-detect signed-in browser.
 # Order: Chrome → Firefox → Safari → Edge → Brave → Chromium.
-# Override via env: WATCH_BROWSER=firefox.
+# Override via env: WATCH_BROWSER=firefox. WATCH_BROWSER=none skips
+# this tier entirely, so a login wall fails with tag=download-auth
+# instead of touching any browser profile.
 declare -a BROWSERS
-if [[ -n "${WATCH_BROWSER:-}" ]]; then
+if [[ "${WATCH_BROWSER:-}" == "none" ]]; then
+  BROWSERS=()
+elif [[ -n "${WATCH_BROWSER:-}" ]]; then
   BROWSERS=("$WATCH_BROWSER")
 else
   BROWSERS=(chrome firefox safari edge brave chromium)
 fi
 
-for BROWSER in "${BROWSERS[@]}"; do
+# ${arr[@]+"${arr[@]}"} keeps `set -u` happy on an empty array (bash 3.2).
+for BROWSER in ${BROWSERS[@]+"${BROWSERS[@]}"}; do
   echo "[dl-video] anonymous fetch failed, retrying with $BROWSER cookies…" >&2
   if run_dl --cookies-from-browser "$BROWSER" 2>/tmp/dl-video.last.log; then
     if [[ -s "$OUT" ]]; then

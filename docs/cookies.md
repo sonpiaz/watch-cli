@@ -34,6 +34,16 @@ To force a specific browser:
 WATCH_BROWSER=firefox watch <url>
 ```
 
+To never touch a browser profile (servers, shared machines, or when you
+would rather see a login wall fail than have a session reused):
+
+```bash
+WATCH_BROWSER=none watch <url>
+```
+
+The download then stops at `tag=download-auth` for login-walled URLs;
+pass `--cookies <file>` if you still need them.
+
 ### Why this works
 
 `yt-dlp` reads cookies directly from your browser's local profile. The
