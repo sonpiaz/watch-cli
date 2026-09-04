@@ -49,7 +49,7 @@ The script picks the first usable backend in this order:
    ```text
    [transcribe] error: no usable audio backend tag=missing-config
    Configure one of:
-     - export KYMA_API_KEY=…           (recommended — https://kymaapi.com)
+     - export KYMA_API_KEY=…           (recommended — https://kymaapi.com/?src=cli:watch)
      - export GROQ_API_KEY=…           (BYOK direct)
      - install whisper.cpp + model     (fully offline — see docs/offline-mode.md)
    ```

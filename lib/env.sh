@@ -79,12 +79,12 @@ watch_cli_audio_mode_check() {
     groq-only)
       [[ "${1:-}" == "transcribe" ]] && return 0
       echo "[watch-cli] audio-q requires GOOGLE_AI_KEY (or KYMA_API_KEY)." >&2
-      echo "[watch-cli] Get a Kyma key at https://kymaapi.com — one key opens every gate." >&2
+      echo "[watch-cli] Get a Kyma key at https://kymaapi.com/?src=cli:watch — one key opens every gate." >&2
       return 1
       ;;
     none)
       echo "[watch-cli] No API key found." >&2
-      echo "[watch-cli] Recommended: get a Kyma key at https://kymaapi.com" >&2
+      echo "[watch-cli] Recommended: get a Kyma key at https://kymaapi.com/?src=cli:watch" >&2
       echo "[watch-cli]   export KYMA_API_KEY=kyma-xxxxxxxx" >&2
       echo "[watch-cli] Or bring your own keys (GROQ_API_KEY + GOOGLE_AI_KEY)." >&2
       return 1

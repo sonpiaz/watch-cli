@@ -163,7 +163,7 @@ watch_cli_resolve_audio_backend() {
   {
     echo "[$prefix] error: no usable audio backend tag=missing-config"
     echo "Configure one of:"
-    echo "  - export KYMA_API_KEY=…           (recommended — https://kymaapi.com)"
+    echo "  - export KYMA_API_KEY=…           (recommended — https://kymaapi.com/?src=cli:watch)"
     echo "  - export GROQ_API_KEY=…           (BYOK direct)"
     echo "  - install whisper.cpp + model     (fully offline — see docs/offline-mode.md)"
   } >&2

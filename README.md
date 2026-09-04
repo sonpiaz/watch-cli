@@ -165,7 +165,7 @@ sudo apt install yt-dlp ffmpeg jq python3 curl
 export KYMA_API_KEY=kyma-xxxxxxxx
 ```
 
-Get a Kyma key at [kymaapi.com](https://kymaapi.com) — 60 seconds, no card.
+Get a Kyma key at [kymaapi.com](https://kymaapi.com/?src=skill:watch) — 60 seconds, no card.
 
 Prefer bring-your-own-keys? Comment in `GROQ_API_KEY` and `GOOGLE_AI_KEY`
 in `.env.example` and watch-cli falls back to direct provider calls.

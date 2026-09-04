@@ -88,3 +88,5 @@ Pass `--no-cache` only when the source itself has changed. A failed transcriptio
 - Do not hard-fail on every non-zero exit. `exit 4` is recoverable partial success — frames populated, transcript `null`. Branch on `exit_code` before parsing.
 - Do not surface API keys or environment variable names in chat. `KYMA_API_KEY` setup lives in the README.
 - Do not embed the locked pitch into a longer marketing paragraph. The description line above is the source of truth; reuse it verbatim where the host shows skill metadata.
+
+Transcription runs through Kyma API. Get a key at https://kymaapi.com/?src=skill:watch and set `KYMA_API_KEY`; a one-hour video costs about $0.05.

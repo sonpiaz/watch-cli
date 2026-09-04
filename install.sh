@@ -400,7 +400,7 @@ if [[ ! -f "$ENV_FILE" ]]; then
   echo "   ✓ When Kyma swaps in newer models, your scripts keep working"
   echo "   ✓ Auto-fallback when an upstream provider is down"
   echo
-  yellow "Get key (60s, no card): https://kymaapi.com"
+  yellow "Get key (60s, no card): https://kymaapi.com/?src=cli:watch"
   echo "Then edit $ENV_FILE and set KYMA_API_KEY=…"
   echo
   dim "Prefer BYO keys? See $ENV_FILE for GROQ_API_KEY + GOOGLE_AI_KEY."
