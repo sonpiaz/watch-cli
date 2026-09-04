@@ -6,8 +6,9 @@
 #
 # Cookie fallback (4 tiers, tried in order):
 #   1. Anonymous fetch — works for all public videos.
-#   2. Auto-detect signed-in browser (Chrome → Firefox → Safari → Edge).
-#      Override via WATCH_BROWSER=chrome|firefox|safari|edge|brave|chromium.
+#   2. Cookies from a signed-in browser, only when the user opts in with
+#      WATCH_BROWSER=auto (Chrome → Firefox → Safari → Edge → Brave →
+#      Chromium) or WATCH_BROWSER=<one of those>. Unset or "none": skipped.
 #   3. Manual cookies file via --cookies <file> (Netscape format).
 #   4. Graceful error with guidance — no silent failure.
 #
@@ -147,19 +148,18 @@ if [[ -n "$COOKIES_FILE" ]]; then
   exit 3
 fi
 
-# Tier 2: auto-detect signed-in browser.
-# Order: Chrome → Firefox → Safari → Edge → Brave → Chromium.
-# Override via env: WATCH_BROWSER=firefox. WATCH_BROWSER=none skips
-# this tier entirely, so a login wall fails with tag=download-auth
-# instead of touching any browser profile.
+# Tier 2: cookies from a signed-in browser, opt-in only. A browser
+# session is the user's identity on that platform, so watch-cli never
+# reads one unless asked: WATCH_BROWSER=auto tries Chrome → Firefox →
+# Safari → Edge → Brave → Chromium, WATCH_BROWSER=firefox tries that
+# one. Unset (the default) or "none" skips this tier, and a login wall
+# fails with tag=download-auth and a hint instead.
 declare -a BROWSERS
-if [[ "${WATCH_BROWSER:-}" == "none" ]]; then
-  BROWSERS=()
-elif [[ -n "${WATCH_BROWSER:-}" ]]; then
-  BROWSERS=("$WATCH_BROWSER")
-else
-  BROWSERS=(chrome firefox safari edge brave chromium)
-fi
+case "${WATCH_BROWSER:-}" in
+  ""|none) BROWSERS=() ;;
+  auto) BROWSERS=(chrome firefox safari edge brave chromium) ;;
+  *) BROWSERS=("$WATCH_BROWSER") ;;
+esac
 
 # ${arr[@]+"${arr[@]}"} keeps `set -u` happy on an empty array (bash 3.2).
 for BROWSER in ${BROWSERS[@]+"${BROWSERS[@]}"}; do
@@ -177,11 +177,13 @@ TAG="$(classify_failure)"
 case "$TAG" in
   download-auth)
     cat >&2 <<ERR
-[dl-video] error: download failed for $URL tag=download-auth — sign in to the platform in your browser and re-run, or pass --cookies <file>
+[dl-video] error: download failed for $URL tag=download-auth — re-run with WATCH_BROWSER=auto to use a signed-in browser on this machine, or pass --cookies <file>
 
 Three ways to fix:
-  1. Sign in to the platform in Chrome (or Firefox/Safari/Edge), then re-run.
-     watch-cli auto-reads cookies from any signed-in browser.
+  1. Sign in to the platform in Chrome (or Firefox/Safari/Edge), then re-run with
+       WATCH_BROWSER=auto watch <url>
+     Cookies are read from the local browser profile and sent only to that
+     platform. watch-cli never does this unless you set WATCH_BROWSER.
 
   2. Export cookies.txt (Netscape format) and pass:
        watch-cli <url> --cookies ~/path/to/cookies.txt

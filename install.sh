@@ -3,8 +3,8 @@
 # Usage:
 #   curl -fsSL https://github.com/sonpiaz/watch-cli/releases/latest/download/install.sh | bash
 # or pin a version:
-#   curl -fsSL https://github.com/sonpiaz/watch-cli/releases/download/v0.3.3/install.sh \
-#     | WATCH_CLI_VERSION=0.3.3 bash
+#   curl -fsSL https://github.com/sonpiaz/watch-cli/releases/download/v0.3.4/install.sh \
+#     | WATCH_CLI_VERSION=0.3.4 bash
 # or, from a clone:
 #   ./install.sh
 #
@@ -52,12 +52,12 @@ watch-cli installer
 
 Usage:
   curl -fsSL https://github.com/sonpiaz/watch-cli/releases/latest/download/install.sh | bash
-  curl -fsSL https://github.com/sonpiaz/watch-cli/releases/download/v0.3.3/install.sh \
-    | WATCH_CLI_VERSION=0.3.3 bash
+  curl -fsSL https://github.com/sonpiaz/watch-cli/releases/download/v0.3.4/install.sh \
+    | WATCH_CLI_VERSION=0.3.4 bash
   ./install.sh [--with-skill] [--with-mcp] [--with-local]
 
 Env:
-  WATCH_CLI_VERSION  Pin to a specific release (e.g. 0.3.3). Set it on
+  WATCH_CLI_VERSION  Pin to a specific release (e.g. 0.3.4). Set it on
                      the bash side of the pipe, not on curl.
                      Unset → install the latest release.
 

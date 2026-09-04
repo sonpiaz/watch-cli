@@ -16,8 +16,9 @@ For these, watch-cli needs to act as a signed-in user.
 ## Option 1 — sign in to a browser (easiest)
 
 **You don't need to copy cookies by hand.** If you're already signed in
-to the platform in **any** of these browsers, watch-cli reads the live
-session directly. No F12, no DevTools, no extensions:
+to the platform in **any** of these browsers, `WATCH_BROWSER=auto`
+lets watch-cli read the live session directly. No F12, no DevTools, no
+extensions. Nothing is read unless you set the variable:
 
 - Chrome (default first try)
 - Firefox
@@ -26,23 +27,20 @@ session directly. No F12, no DevTools, no extensions:
 - Brave
 - Chromium
 
-No setup needed — just sign in normally and re-run `watch <url>`.
+```bash
+WATCH_BROWSER=auto watch <url>
+```
 
-To force a specific browser:
+To use a specific browser:
 
 ```bash
 WATCH_BROWSER=firefox watch <url>
 ```
 
-To never touch a browser profile (servers, shared machines, or when you
-would rather see a login wall fail than have a session reused):
-
-```bash
-WATCH_BROWSER=none watch <url>
-```
-
-The download then stops at `tag=download-auth` for login-walled URLs;
-pass `--cookies <file>` if you still need them.
+With `WATCH_BROWSER` unset (the default, and what `none` also means),
+a login-walled URL stops at `tag=download-auth` and the error tells you
+how to opt in; pass `--cookies <file>` if you would rather not touch a
+browser profile at all.
 
 ### Why this works
 

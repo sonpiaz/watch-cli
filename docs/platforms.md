@@ -2,6 +2,7 @@
 
 `watch-cli` works on any platform `yt-dlp` understands. The table below
 covers the ones we have explicitly tested and the cookie tier they need.
+"Auto browser" means `WATCH_BROWSER=auto` (opt-in; never read by default).
 
 | Platform | No cookie | Auto browser | Manual `--cookies` |
 |---|---|---|---|

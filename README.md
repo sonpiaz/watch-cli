@@ -10,7 +10,7 @@ Eyes and ears for your AI agent. watch-cli composes `yt-dlp` + `ffmpeg` + a Whis
 watch https://twitter.com/anyone/status/12345
 ```
 
-Works on YouTube, X, LinkedIn, TikTok, Reddit, Vimeo, and Facebook. Login-walled posts (LinkedIn, private X, FB) fall back to your browser cookies automatically.
+Works on YouTube, X, LinkedIn, TikTok, Reddit, Vimeo, and Facebook. Login-walled posts (LinkedIn, private X, FB) work with `WATCH_BROWSER=auto`, which reads cookies from a browser you are signed in to.
 
 ## What you can build
 
@@ -118,8 +118,8 @@ The agent then picks up `watch <url>` as a first-class command.
 Pin a specific version:
 
 ```bash
-curl -fsSL https://github.com/sonpiaz/watch-cli/releases/download/v0.3.3/install.sh \
-  | WATCH_CLI_VERSION=0.3.3 bash
+curl -fsSL https://github.com/sonpiaz/watch-cli/releases/download/v0.3.4/install.sh \
+  | WATCH_CLI_VERSION=0.3.4 bash
 ```
 
 Or from a clone:
@@ -257,11 +257,16 @@ to see what's behind the alias today.
 Most YouTube / TikTok / Reddit / Vimeo / public X work without setup.
 LinkedIn, private X posts, and Facebook need a session.
 
-watch-cli tries every URL anonymously first. On a login wall it
-retries with cookies from a signed-in browser on this machine
-(Chrome → Firefox → Safari → Edge → Brave → Chromium). Just sign in
-normally and re-run. `WATCH_BROWSER=none` turns the browser step off;
-cookies are read locally by yt-dlp and never stored or uploaded.
+watch-cli fetches every URL anonymously and never reads a browser
+session on its own. For a login-walled URL, opt in per run:
+
+```bash
+WATCH_BROWSER=auto watch <url>      # any signed-in browser: Chrome → Firefox → Safari → Edge → Brave → Chromium
+WATCH_BROWSER=firefox watch <url>   # one browser
+```
+
+Cookies are read from the local browser profile by yt-dlp, sent only to
+that platform, and never stored or uploaded.
 
 For servers / CI without browsers, pass a manual cookies file:
 

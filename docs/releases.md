@@ -287,8 +287,8 @@ tagged release tarball.
 curl -fsSL https://github.com/sonpiaz/watch-cli/releases/latest/download/install.sh | bash
 
 # pin a specific version
-curl -fsSL https://github.com/sonpiaz/watch-cli/releases/download/v0.3.3/install.sh \
-  | WATCH_CLI_VERSION=0.3.3 bash
+curl -fsSL https://github.com/sonpiaz/watch-cli/releases/download/v0.3.4/install.sh \
+  | WATCH_CLI_VERSION=0.3.4 bash
 ```
 
 `releases/latest/download/<asset>` is a GitHub-managed redirect that
@@ -350,7 +350,7 @@ The implementer must verify end to end before declaring done:
    against `watch-cli.tar.gz.sha256`, unpack and run
    `./watch-cli-0.3.0/install.sh` on a clean container. `watch
    --version` prints `watch-cli v0.3.0`.
-3. **Pinned install.** Run the `WATCH_CLI_VERSION=0.3.3` curl form (the variable goes on the `bash` side of the pipe)
+3. **Pinned install.** Run the `WATCH_CLI_VERSION=0.3.4` curl form (the variable goes on the `bash` side of the pipe)
    on a second clean container. Same result.
 4. **Latest install.** Run the `releases/latest/download/install.sh`
    form. Resolves to v0.3.0.
