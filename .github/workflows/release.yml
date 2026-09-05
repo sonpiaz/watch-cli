@@ -137,6 +137,12 @@ jobs:
     name: Publish @sonpiaz/watch-cli-mcp to npm
     needs: release
     runs-on: ubuntu-latest
+    # npm granular tokens expire every 90 days and the release must not hang
+    # on one. A red step here means "publish by hand": from mcp-server/,
+    # `npm version --no-git-tag-version <tag>`, `npm ci`, `npm run build`,
+    # `npm publish --access public` with a logged-in npm account (v0.3.4 was
+    # published that way on 2026-09-05).
+    continue-on-error: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4
