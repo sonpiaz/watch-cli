@@ -24,6 +24,21 @@ contract: "v1 means the tarball at tag v1.x.y."
 
 ---
 
+## When the npm step is red
+
+The `Publish @sonpiaz/watch-cli-mcp to npm` job is `continue-on-error`: npm
+granular tokens expire every 90 days and a release should not fail because a
+secret aged out. When it is red, publish by hand from a checkout of the tag:
+
+```bash
+cd mcp-server
+npm version --no-git-tag-version X.Y.Z
+npm ci && npm run build
+npm publish --access public
+```
+
+Then refresh `NPM_TOKEN` in the repository secrets when convenient.
+
 ## Semver policy
 
 watch-cli follows semver with one pre-1.0 exception (see below).
