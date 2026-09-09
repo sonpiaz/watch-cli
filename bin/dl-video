@@ -92,6 +92,11 @@ FORMAT='best[height<=720]/best'
 # flight, so naming an archived video later costs no extra request. stdout
 # is unchanged: still just the mp4 path.
 run_dl() {
+  local -a EXTRA=()
+  if command -v node >/dev/null 2>&1; then
+    EXTRA+=(--js-runtimes "node:$(command -v node)")
+  fi
+  EXTRA+=(--extractor-args "youtube:player_client=web_safari,mweb,android_vr,ios")
   yt-dlp \
     --no-playlist \
     --no-warnings \
@@ -100,6 +105,7 @@ run_dl() {
     --write-info-json \
     -f "$FORMAT" \
     -o "$OUT" \
+    "${EXTRA[@]}" \
     "$@" \
     "$URL" >&2
 }
