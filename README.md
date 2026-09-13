@@ -165,10 +165,19 @@ sudo apt install yt-dlp ffmpeg jq python3 curl
 export KYMA_API_KEY=kyma-xxxxxxxx
 ```
 
-Get a Kyma key at [kymaapi.com](https://kymaapi.com/?src=skill:watch) — 60 seconds, no card.
+Get a Kyma key at [kymaapi.com](https://kymaapi.com?utm_source=watch-cli). About 60 seconds, no card.
 
 Prefer bring-your-own-keys? Comment in `GROQ_API_KEY` and `GOOGLE_AI_KEY`
 in `.env.example` and watch-cli falls back to direct provider calls.
+
+Runs on [Kyma API](https://kymaapi.com?utm_source=watch-cli): one key covers speech-to-text and audio scene Q&A for every `watch` / `transcribe` / `audio-q` run.
+
+Default Kyma calls (scripts send capability aliases; Kyma resolves them to the models below):
+
+| Role | Model | Kyma endpoint | Best for |
+|------|-------|---------------|----------|
+| Transcribe (alias `transcribe`) | [`whisper-v3-turbo`](https://kymaapi.com/models/whisper-v3-turbo?utm_source=watch-cli) | `POST https://kymaapi.com/v1/audio/transcriptions` | Speech-to-text for any social video |
+| Audio Q&A (alias `audio-understand`) | [`gemini-3-flash-audio`](https://kymaapi.com/models/gemini-3-flash-audio?utm_source=watch-cli) | `POST https://kymaapi.com/v1/audio/understand` | Tone, music, SFX, language, emotion |
 
 ---
 
